@@ -233,6 +233,7 @@ interface SidebarWorkspaceListProps {
   // Rendered inside the scroll area, below the Pinned section and above the workspace
   // list. Holds the "Workspaces" section header so pinned items sit above it.
   listHeaderComponent?: ReactElement | null;
+  listLeadingComponent?: ReactElement | null;
   /** Gesture ref for coordinating with parent gestures (e.g., sidebar close) */
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
   dragGestureHostActive?: boolean;
@@ -1900,6 +1901,7 @@ export function SidebarWorkspaceList({
   onImportSession,
   listFooterComponent,
   listHeaderComponent,
+  listLeadingComponent,
   parentGestureRef,
   dragGestureHostActive,
 }: SidebarWorkspaceListProps) {
@@ -1976,6 +1978,7 @@ export function SidebarWorkspaceList({
         onToggleWorkspacePin={onToggleWorkspacePin}
         onPinnedWorkspaceReorder={handlePinnedWorkspaceReorder}
         listHeaderComponent={listHeaderComponent}
+        listLeadingComponent={listLeadingComponent}
         sidebarFilterEmpty={sidebarFilterEmpty}
         parentGestureRef={parentGestureRef}
         dragGestureHostActive={dragGestureHostActive}
@@ -1994,6 +1997,7 @@ export function SidebarWorkspaceList({
         onImportSession={onImportSession}
         listFooterComponent={listFooterComponent}
         listHeaderComponent={listHeaderComponent}
+        listLeadingComponent={listLeadingComponent}
         sidebarFilterEmpty={sidebarFilterEmpty}
         hasActiveProjectFilter={hasActiveProjectFilter}
         parentGestureRef={parentGestureRef}
@@ -2028,6 +2032,7 @@ function SidebarGroupedModeList({
   onToggleWorkspacePin,
   onPinnedWorkspaceReorder,
   listHeaderComponent,
+  listLeadingComponent,
   sidebarFilterEmpty,
   parentGestureRef,
   dragGestureHostActive,
@@ -2043,6 +2048,7 @@ function SidebarGroupedModeList({
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
   onPinnedWorkspaceReorder: (workspaces: SidebarWorkspacePlacement[]) => void;
   listHeaderComponent?: ReactElement | null;
+  listLeadingComponent?: ReactElement | null;
   sidebarFilterEmpty: boolean;
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
   dragGestureHostActive?: boolean;
@@ -2070,6 +2076,7 @@ function SidebarGroupedModeList({
       onToggleWorkspacePin={onToggleWorkspacePin}
       onPinnedWorkspaceReorder={onPinnedWorkspaceReorder}
       listHeaderComponent={listHeaderComponent}
+      listLeadingComponent={listLeadingComponent}
       sidebarFilterEmpty={sidebarFilterEmpty}
       parentGestureRef={parentGestureRef}
       dragGestureHostActive={dragGestureHostActive}
@@ -2090,6 +2097,7 @@ function ProjectModeList({
   onImportSession,
   listFooterComponent,
   listHeaderComponent,
+  listLeadingComponent,
   sidebarFilterEmpty,
   hasActiveProjectFilter,
   parentGestureRef,
@@ -2446,6 +2454,7 @@ function ProjectModeList({
           )}
         </View>
       ) : null}
+      {listLeadingComponent}
       {/* The header carries the display menu, which is the only way back out of a filter, so it
         stays for as long as a filter is what emptied the list. It is absent only when the
         sidebar is genuinely empty, where a section heading would sit over nothing.

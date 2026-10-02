@@ -4,6 +4,7 @@ import type {
 } from "@getpaseo/client/internal/daemon-client";
 import type { TaskLaunchClient, TaskAgentConfig } from "./form-model";
 import { buildOrchestrationPrompt } from "./prompt";
+import { deriveTaskTitle } from "./metadata";
 
 import { describe, expect, it } from "vitest";
 import { openMultiProjectTaskForm, type TaskProject } from "./form-model";
@@ -35,6 +36,16 @@ const projects: TaskProject[] = [
 function open() {
   return openMultiProjectTaskForm({ status: "ready", projects, workspaces: [] });
 }
+
+it.each([
+  ["\n  Inspect   GNOME Shell extensions \r\nMore instructions", "Inspect GNOME Shell extensions"],
+  ["GNOME 52 migration", "GNOME 52 migration"],
+  ["Update shared tooling", "Update shared tooling"],
+  ["x".repeat(80), "x".repeat(60)],
+  [" \n\t ", "Multi-project task"],
+])("derives a concise title from the user's task %j", (prompt, title) => {
+  expect(deriveTaskTitle(prompt)).toBe(title);
+});
 
 describe("multi-project task form", () => {
   it("requires a prompt and at least one registered project, with independent selection", () => {
@@ -142,7 +153,8 @@ it.each(["local", "worktree"] as const)(
     expect(client.agents[0]).toMatchObject({
       workspaceId: "context",
       idempotencyKey: "creation-id",
-      config: { ...config, cwd: "/a" },
+      config: { ...config, cwd: "/a", title: "Apply the GNOME 52 migration guide." },
+      labels: { "paseo.multi-project-task": "true" },
     });
     const prompt = client.agents[0]!.initialPrompt!;
     expect(prompt.endsWith(task)).toBe(true);
@@ -164,7 +176,11 @@ it("uses ordinary local workspace creation only when selected projects have no u
   expect(client.agents).toEqual([]);
   expect(client.workspaces[0]).toMatchObject({
     source: { kind: "directory", path: "/a", projectId: "a" },
-    agent: { config: { ...config, cwd: "/a" } },
+    title: "Extension A",
+    agent: {
+      config: { ...config, cwd: "/a", title: "Apply the GNOME 52 migration guide." },
+      labels: { "paseo.multi-project-task": "true" },
+    },
   });
   expect(client.workspaces[0]!.agent!.initialPrompt).toContain('isolation: "worktree"');
 });

@@ -26,6 +26,7 @@ export const ar: TranslationResources = {
     total: "{{total}} تطابقات",
   },
   multiProjectTask: {
+    sidebarTitle: "مهام متعددة المشاريع",
     missingProjects: "بعض المشاريع المحددة لم تعد مسجلة. ألغِ تحديدها للمتابعة.",
     title: "مهمة متعددة المشاريع",
     start: "بدء",

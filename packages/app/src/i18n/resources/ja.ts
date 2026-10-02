@@ -27,6 +27,7 @@ export const ja: TranslationResources = {
     total: "{{total}} 件の一致",
   },
   multiProjectTask: {
+    sidebarTitle: "複数プロジェクトのタスク",
     missingProjects:
       "選択した一部のプロジェクトは登録されていません。選択を解除して続行してください。",
     title: "複数プロジェクトのタスク",

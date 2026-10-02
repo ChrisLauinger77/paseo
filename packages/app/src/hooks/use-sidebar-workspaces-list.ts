@@ -85,6 +85,7 @@ const EMPTY_WORKSPACES: SidebarWorkspacePlacement[] = [];
 const EMPTY_PROJECT_NAMES = new Map<string, string>();
 
 export interface SidebarWorkspacesListResult {
+  serverIds: readonly string[];
   workspacePlacements: SidebarWorkspacePlacement[];
   projects: SidebarProjectEntry[];
   projectNamesByViewKey: Map<string, string>;
@@ -193,6 +194,7 @@ export function useSidebarWorkspacesList(options?: {
   });
 
   return {
+    serverIds,
     workspacePlacements,
     projects,
     projectNamesByViewKey,

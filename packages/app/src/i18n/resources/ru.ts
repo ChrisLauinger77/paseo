@@ -27,6 +27,7 @@ export const ru: TranslationResources = {
     total: "Совпадений: {{total}}",
   },
   multiProjectTask: {
+    sidebarTitle: "Задачи нескольких проектов",
     missingProjects:
       "Некоторые выбранные проекты больше не зарегистрированы. Снимите их выделение, чтобы продолжить.",
     title: "Задача для нескольких проектов",

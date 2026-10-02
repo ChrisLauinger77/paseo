@@ -26,6 +26,7 @@ export const zhCN: TranslationResources = {
     total: "{{total}} 个匹配项",
   },
   multiProjectTask: {
+    sidebarTitle: "多项目任务",
     missingProjects: "部分所选项目已不再注册。请取消选择这些项目后继续。",
     title: "多项目任务",
     start: "开始",

@@ -8,6 +8,13 @@ import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { gotoWorkspace } from "../support/helpers/launcher";
 import { openGlobalNewWorkspaceComposer } from "../support/helpers/new-workspace";
 import { seedWorkspace } from "../support/helpers/seed-client";
+import { getServerId } from "../support/helpers/server-id";
+import {
+  expectMobileAgentSidebarVisible,
+  expectMobileAgentSidebarHidden,
+  openMobileAgentSidebar,
+  selectSidebarStatusGrouping,
+} from "../support/helpers/sidebar";
 
 const providerId = "multi-project-diagnostic";
 const modelId = "pi-profile-model";
@@ -56,10 +63,10 @@ for (const compact of [false, true]) {
   });
 }
 
-test("launches a coordinator with a profile and recovers visibly from provider startup failure", async ({
+test("launches labeled coordinators, recovers from failure, and opens them from their sidebar section", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(150_000);
+  test.setTimeout(180_000);
   const first = await seedWorkspace({ repoPrefix: "multi-task-first-" });
   const second = await seedWorkspace({ repoPrefix: "multi-task-second-" });
   const binDir = await mkdtemp(path.join(tmpdir(), "multi-task-provider-"));
@@ -121,6 +128,8 @@ test("launches a coordinator with a profile and recovers visibly from provider s
     const coordinator = agents[0]!.agent;
     expect(coordinator.workspaceId).toBe(first.workspaceId);
     expect(coordinator.model).toBe(modelId);
+    expect(coordinator.labels).toEqual({ "paseo.multi-project-task": "true" });
+    expect(coordinator.title).toBe("Apply the GNOME 52 migration guide.");
     expect(requests).toHaveLength(2);
     for (const request of requests) {
       expect(request).toContain(first.projectId);
@@ -128,6 +137,121 @@ test("launches a coordinator with a profile and recovers visibly from provider s
       expect(request).toContain("completion notifications");
     }
     await page.screenshot({ path: testInfo.outputPath("coordinator-launched.png") });
+    const section = page.getByTestId("sidebar-multi-project-tasks").filter({ visible: true });
+    const row = section.getByTestId(
+      `sidebar-multi-project-task-${getServerId()}:${coordinator.id}`,
+    );
+    await expect(row).toContainText(coordinator.title!);
+    await expect(row).toContainText("0 subagents");
+
+    const workspaces = (await client.fetchWorkspaces()).entries;
+    const firstContext = workspaces.find((workspace) => workspace.id === first.workspaceId)!;
+    const secondContext = workspaces.find((workspace) => workspace.id === second.workspaceId)!;
+    const ordinary = await client.createAgent({
+      workspaceId: first.workspaceId,
+      config: {
+        provider: providerId,
+        model: modelId,
+        cwd: firstContext.workspaceDirectory,
+        title: "Ordinary agent",
+      },
+    });
+    const worker = await client.createAgent({
+      workspaceId: second.workspaceId,
+      callerAgentId: coordinator.id,
+      config: {
+        provider: providerId,
+        model: modelId,
+        cwd: secondContext.workspaceDirectory,
+        title: "Project worker",
+      },
+    });
+    const another = await client.createAgent({
+      workspaceId: first.workspaceId,
+      config: {
+        provider: providerId,
+        model: modelId,
+        cwd: firstContext.workspaceDirectory,
+        title: "Update shared tooling",
+      },
+      labels: { "paseo.multi-project-task": "true" },
+    });
+    await expect(
+      section.getByRole("button", { name: "Update shared tooling", exact: true }),
+    ).toBeVisible();
+    await expect(row).toContainText("1 subagent");
+    await expect(section.locator('[data-testid^="sidebar-multi-project-task-"]')).toHaveCount(2);
+    const workspaceRows = page
+      .locator('[data-testid^="sidebar-workspace-row-"]')
+      .filter({ visible: true });
+    await expect(workspaceRows).toHaveCount(2);
+    await expect(workspaceRows.getByText(coordinator.title!, { exact: true })).toHaveCount(0);
+    await expect(workspaceRows.getByText("Update shared tooling", { exact: true })).toHaveCount(0);
+    await expect(
+      page
+        .getByTestId(`sidebar-workspace-row-${getServerId()}:${first.workspaceId}`)
+        .filter({ visible: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByTestId(`sidebar-workspace-row-${getServerId()}:${second.workspaceId}`)
+        .filter({ visible: true }),
+    ).toBeVisible();
+
+    await gotoWorkspace(page, second.workspaceId);
+    await expect(
+      page.getByTestId(`workspace-tab-agent_${worker.id}`).filter({ visible: true }),
+    ).toBeVisible();
+    await row.click();
+    await expect(
+      page.getByTestId(`workspace-tab-agent_${coordinator.id}`).filter({ visible: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByTestId(`workspace-tab-agent_${ordinary.id}`).filter({ visible: true }),
+    ).toBeVisible();
+    await expect(row).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByTestId("subagents-track-header").filter({ visible: true }),
+    ).toBeVisible();
+    await section.getByRole("button", { name: "Update shared tooling", exact: true }).click();
+    await expect(
+      page.getByTestId(`workspace-tab-agent_${another.id}`).filter({ visible: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(row).toHaveAttribute("aria-selected", "false");
+    await page.reload();
+    await expect(
+      section.getByRole("button", { name: "Update shared tooling", exact: true }),
+    ).toBeVisible();
+    await page.getByTestId("sidebar-multi-project-tasks-header").filter({ visible: true }).click();
+    await expect(row).toHaveCount(0);
+    await page.getByTestId("sidebar-multi-project-tasks-header").filter({ visible: true }).click();
+    await expect(row).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("multi-project-sidebar-desktop.png") });
+    await selectSidebarStatusGrouping(page);
+    await expect(row).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openMobileAgentSidebar(page);
+    await expectMobileAgentSidebarVisible(page);
+    await expect(row).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: testInfo.outputPath("multi-project-sidebar-compact.png") });
+    await row.click();
+    await expectMobileAgentSidebarHidden(page);
+    await expect(page.getByTestId("workspace-tab-switcher-trigger")).toContainText(
+      coordinator.title!,
+    );
+    await client.archiveAgent(another.id);
+    await openMobileAgentSidebar(page);
+    await expect(
+      section.getByRole("button", { name: "Update shared tooling", exact: true }),
+    ).toHaveCount(0);
+    await expect(row).toBeVisible();
+    await client.archiveAgent(coordinator.id);
+    await expect(section).toHaveCount(0);
+    const remaining = (await client.fetchAgents({ scope: "active" })).entries.map(
+      ({ agent }) => agent.id,
+    );
+    expect(remaining).toContain(ordinary.id);
+    expect(remaining).toContain(worker.id);
   } finally {
     await client.close();
     await profiles.restore();

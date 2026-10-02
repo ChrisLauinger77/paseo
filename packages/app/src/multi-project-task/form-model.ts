@@ -6,6 +6,7 @@ import type {
 import type { ProjectDescriptor, WorkspaceDescriptor } from "@/stores/session-store";
 import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import { buildOrchestrationPrompt } from "./prompt";
+import { deriveTaskTitle, MULTI_PROJECT_TASK_LABEL } from "./metadata";
 
 export type TaskProject = Pick<
   ProjectDescriptor,
@@ -168,7 +169,12 @@ export function openMultiProjectTaskForm(targets: TaskTargets) {
         agent: state.agentConfig,
       });
       const request: CreateAgentRequestOptions = {
-        config: { ...state.agentConfig, cwd: state.workingDir, title: "Multi-project task" },
+        config: {
+          ...state.agentConfig,
+          cwd: state.workingDir,
+          title: deriveTaskTitle(state.prompt),
+        },
+        labels: { [MULTI_PROJECT_TASK_LABEL]: "true" },
         initialPrompt,
       };
       const fingerprint = JSON.stringify([initialPrompt, state.agentConfig]);
@@ -182,6 +188,8 @@ export function openMultiProjectTaskForm(targets: TaskTargets) {
           ? await client.createAgent({ ...originalRequest, workspaceId, idempotencyKey })
           : await client
               .createWorkspace({
+                // This is a technical context, so keep the task's name on its agent.
+                title: projects[0]!.projectCustomName || projects[0]!.projectDisplayName,
                 source: {
                   kind: "directory",
                   path: projects[0]!.projectRootPath,

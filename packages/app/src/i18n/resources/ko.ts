@@ -26,6 +26,7 @@ export const ko: TranslationResources = {
     total: "일치 항목 {{total}}개",
   },
   multiProjectTask: {
+    sidebarTitle: "다중 프로젝트 작업",
     missingProjects:
       "선택한 일부 프로젝트가 더 이상 등록되어 있지 않습니다. 선택을 해제하고 계속하세요.",
     title: "다중 프로젝트 작업",

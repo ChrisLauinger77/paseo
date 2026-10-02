@@ -27,6 +27,7 @@ export const ptBR: TranslationResources = {
     total: "{{total}} correspondências",
   },
   multiProjectTask: {
+    sidebarTitle: "Tarefas de vários projetos",
     missingProjects:
       "Alguns projetos selecionados não estão mais registrados. Desmarque-os para continuar.",
     title: "Tarefa em vários projetos",

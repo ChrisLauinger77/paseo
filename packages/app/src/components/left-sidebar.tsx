@@ -62,6 +62,7 @@ import {
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import { MultiProjectTaskSidebarSection } from "@/multi-project-task/sidebar-section";
 
 type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
 
@@ -608,6 +609,7 @@ function MobileSidebar({
             parentGestureRef={closeGestureRef}
             dragGestureHostActive={active}
             listHeaderComponent={workspacesSectionHeaderElement}
+            listLeadingComponent={multiProjectTaskSectionElement}
           />
         )}
 
@@ -783,6 +785,7 @@ function DesktopSidebar({
             onAddProject={handleOpenProject}
             onImportSession={handleImportSession}
             listHeaderComponent={workspacesSectionHeaderElement}
+            listLeadingComponent={multiProjectTaskSectionElement}
           />
         )}
 
@@ -831,6 +834,7 @@ function WorkspacesSectionHeader() {
 // Stable element so the sidebar list's listHeaderComponent prop keeps identity across
 // renders (WorkspacesSectionHeader takes no props).
 const workspacesSectionHeaderElement = <WorkspacesSectionHeader />;
+const multiProjectTaskSectionElement = <MultiProjectTaskSidebarSection />;
 
 // Static styles for Animated.Views — must NOT use Unistyles dynamic theme to
 // avoid the "Unable to find node on an unmounted component" crash when Unistyles

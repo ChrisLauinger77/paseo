@@ -22,6 +22,7 @@ export const en = {
     total: "{{total}} matches",
   },
   multiProjectTask: {
+    sidebarTitle: "Multi-project tasks",
     missingProjects: "Some selected projects are no longer registered. Deselect them to continue.",
     title: "Multi-project task",
     start: "Start",

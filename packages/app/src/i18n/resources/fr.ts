@@ -27,6 +27,7 @@ export const fr: TranslationResources = {
     total: "{{total}} résultats",
   },
   multiProjectTask: {
+    sidebarTitle: "Tâches multi-projets",
     missingProjects:
       "Certains projets sélectionnés ne sont plus enregistrés. Désélectionnez-les pour continuer.",
     title: "Tâche multi-projets",

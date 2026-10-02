@@ -27,6 +27,7 @@ export const es: TranslationResources = {
     total: "{{total}} coincidencias",
   },
   multiProjectTask: {
+    sidebarTitle: "Tareas de varios proyectos",
     missingProjects:
       "Algunos proyectos seleccionados ya no están registrados. Desmárcalos para continuar.",
     title: "Tarea multiproyecto",
