@@ -6120,11 +6120,24 @@ export const ListProviderModesResponseMessageSchema = z.object({
   }),
 });
 
+export const PaseoToolAvailabilitySchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ready"),
+    tools: z.array(z.string()),
+    disabledTools: z.array(z.string()),
+  }),
+  z.object({ status: z.literal("disabled") }),
+  z.object({ status: z.literal("unsupported") }),
+]);
+export type PaseoToolAvailability = z.infer<typeof PaseoToolAvailabilitySchema>;
+
 export const ListProviderFeaturesResponseMessageSchema = z.object({
   type: z.literal("list_provider_features_response"),
   payload: z.object({
     provider: AgentProviderSchema,
     features: z.array(AgentFeatureSchema).optional(),
+    // COMPAT(paseoToolAvailability): added in v0.11.0; remove gate after 2027-04-02 once daemon floor includes it.
+    paseoTools: PaseoToolAvailabilitySchema.optional(),
     error: z.string().nullable().optional(),
     fetchedAt: z.string(),
     requestId: z.string(),

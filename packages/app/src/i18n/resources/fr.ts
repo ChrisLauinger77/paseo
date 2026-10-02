@@ -27,6 +27,15 @@ export const fr: TranslationResources = {
     total: "{{total}} résultats",
   },
   multiProjectTask: {
+    checkingTools: "Vérification des outils Paseo…",
+    unsupportedHost:
+      "Cet hôte Paseo ne prend pas en charge les tâches multi-projets. Mettez l’hôte à jour pour disposer des outils de découverte de projets et d’orchestration requis.",
+    toolsDisabled:
+      "Les outils Paseo requis sont désactivés. Activez l’injection d’outils et les outils requis pour ce fournisseur dans la configuration de l’hôte, puis rouvrez ce formulaire.",
+    unsupportedProvider:
+      "Ce fournisseur ne déclare pas la prise en charge des outils Paseo. Sélectionnez un fournisseur compatible.",
+    toolCheckFailed:
+      "Impossible de vérifier les outils Paseo. Reconnectez-vous à l’hôte et rouvrez ce formulaire pour réessayer.",
     sidebarTitle: "Tâches multi-projets",
     missingProjects:
       "Certains projets sélectionnés ne sont plus enregistrés. Désélectionnez-les pour continuer.",

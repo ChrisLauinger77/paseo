@@ -27,6 +27,15 @@ export const ja: TranslationResources = {
     total: "{{total}} 件の一致",
   },
   multiProjectTask: {
+    checkingTools: "Paseo ツールを確認中…",
+    unsupportedHost:
+      "この Paseo ホストはマルチプロジェクトタスクに対応していません。必要なプロジェクト検出ツールと調整ツールを利用できるよう、ホストを更新してください。",
+    toolsDisabled:
+      "必要な Paseo ツールが無効です。ホスト設定でこのプロバイダーへのツール挿入と必要なツールを有効にし、このフォームを開き直してください。",
+    unsupportedProvider:
+      "このプロバイダーは Paseo ツールへの対応を宣言していません。対応するプロバイダーを選択してください。",
+    toolCheckFailed:
+      "Paseo ツールを確認できませんでした。ホストに再接続し、このフォームを開き直して再試行してください。",
     sidebarTitle: "複数プロジェクトのタスク",
     missingProjects:
       "選択した一部のプロジェクトは登録されていません。選択を解除して続行してください。",

@@ -19,6 +19,7 @@ import {
   type ProviderSnapshotEntry,
 } from "../../agent/agent-sdk-types.js";
 import type { ProviderAvailability } from "../../agent/agent-manager.js";
+import type { PaseoToolAvailability } from "@getpaseo/protocol/messages";
 import { expandTilde } from "../../../utils/path.js";
 
 // COMPAT(customModeIcons): the only mode icons known to clients before v0.1.84. Any
@@ -50,6 +51,7 @@ export interface ProviderCatalogSessionHost {
   publishSnapshot(project: () => SessionOutboundMessage | null): void;
   listProviderAvailability(): Promise<ProviderAvailability[]>;
   listDraftFeatures(config: AgentSessionConfig): Promise<AgentFeature[]>;
+  getPaseoToolAvailability(provider: AgentProvider): Promise<PaseoToolAvailability>;
 }
 
 export interface ProviderCatalogSessionOptions {
@@ -358,11 +360,13 @@ export class ProviderCatalogSession {
     try {
       const sessionConfig = this.buildDraftAgentSessionConfig(msg.draftConfig);
       const features = await this.host.listDraftFeatures(sessionConfig);
+      const paseoTools = await this.host.getPaseoToolAvailability(sessionConfig.provider);
       this.host.emit({
         type: "list_provider_features_response",
         payload: {
           provider: msg.draftConfig.provider,
           features,
+          paseoTools,
           error: null,
           fetchedAt,
           requestId: msg.requestId,

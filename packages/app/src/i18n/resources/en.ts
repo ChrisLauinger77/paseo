@@ -22,6 +22,15 @@ export const en = {
     total: "{{total}} matches",
   },
   multiProjectTask: {
+    checkingTools: "Checking Paseo tools…",
+    unsupportedHost:
+      "Multi-project tasks are not supported by this Paseo host. Update the host to provide the required project-discovery and orchestration tools.",
+    toolsDisabled:
+      "Required Paseo tools are disabled. Enable tool injection and the required tools for this provider in the host configuration, then reopen this form.",
+    unsupportedProvider:
+      "This provider does not advertise support for Paseo tools. Select a provider that supports them.",
+    toolCheckFailed:
+      "Could not check Paseo tools. Reconnect to the host and reopen this form to retry.",
     sidebarTitle: "Multi-project tasks",
     missingProjects: "Some selected projects are no longer registered. Deselect them to continue.",
     title: "Multi-project task",

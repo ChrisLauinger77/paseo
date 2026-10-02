@@ -19,6 +19,7 @@ import {
 import type { Logger } from "pino";
 import type { ToolPolicy } from "@getpaseo/protocol/agent-types";
 import type { ProviderPaseoToolsPolicy } from "@getpaseo/protocol/provider-config";
+import type { PaseoToolAvailability } from "@getpaseo/protocol/messages";
 import { z } from "zod";
 import type { TerminalManager } from "../../terminal/terminal-manager.js";
 
@@ -862,6 +863,27 @@ export class AgentManager {
 
   getPaseoToolPolicy(agentId: string): ProviderPaseoToolsPolicy | undefined {
     return this.paseoToolPolicies.get(agentId);
+  }
+
+  async getPaseoToolAvailability(provider: AgentProvider): Promise<PaseoToolAvailability> {
+    const policy = this.resolvePaseoToolPolicy(provider);
+    if (!this.paseoToolsEnabled || !isPaseoToolPolicyEnabled(policy)) {
+      return { status: "disabled" };
+    }
+    const { capabilities } = this.requireClient(provider);
+    const native = capabilities.supportsNativePaseoTools === true;
+    if (!native && !capabilities.supportsMcpServers) {
+      return { status: "unsupported" };
+    }
+    if (!native && !this.mcpBaseUrl) return { status: "disabled" };
+    // Read the same catalog factory used for native tools and the MCP adapter.
+    // Do not infer tool presence from the daemon version or provider identity.
+    const catalog = await this.paseoToolCatalogFactory?.({ paseoToolPolicy: policy });
+    return {
+      status: "ready",
+      tools: Array.from(catalog?.tools.keys() ?? []),
+      disabledTools: policy?.disabledTools ?? [],
+    };
   }
 
   /**

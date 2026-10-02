@@ -5,6 +5,8 @@ import type {
 import type { TaskLaunchClient, TaskAgentConfig } from "./form-model";
 import { buildOrchestrationPrompt } from "./prompt";
 import { deriveTaskTitle } from "./metadata";
+import type { PaseoToolAvailability } from "@getpaseo/protocol/messages";
+import { getTaskCapabilityIssue } from "./capabilities";
 
 import { describe, expect, it } from "vitest";
 import { openMultiProjectTaskForm, type TaskProject } from "./form-model";
@@ -52,7 +54,7 @@ describe("multi-project task form", () => {
     const form = open();
     expect(form.getState().canSubmit).toBe(false);
     form.setPrompt("Migrate the extensions");
-    form.applyAgentConfig({ provider: "codex", model: "gpt-test" });
+    form.applyAgentConfig({ provider: "codex", model: "gpt-test" }, null);
     expect(form.getState().canSubmit).toBe(false);
     form.toggleProject("a");
     form.toggleProject("b");
@@ -119,10 +121,18 @@ function readyForm(workspaces = [workspace]) {
   form.setPrompt(task);
   form.toggleProject("a");
   form.toggleProject("b");
-  form.applyAgentConfig(config);
+  form.applyAgentConfig(config, null);
   return form;
 }
 class LaunchClient implements TaskLaunchClient {
+  paseoTools: PaseoToolAvailability | undefined = {
+    status: "ready",
+    tools: ["list_projects", "create_workspace", "create_agent"],
+    disabledTools: [],
+  };
+  async listProviderFeatures() {
+    return { paseoTools: this.paseoTools, provider: config.provider };
+  }
   agents: CreateAgentRequestOptions[] = [];
   workspaces: CreateWorkspaceRequestOptions[] = [];
   error: string | null = null;
@@ -137,6 +147,31 @@ class LaunchClient implements TaskLaunchClient {
     return { agent: { id: "coordinator", workspaceId: "new-context" } };
   }
 }
+
+it.each(["list_projects", "create_workspace", "create_agent"])(
+  "blocks creation before either launch path when %s is absent",
+  async (missing) => {
+    for (const workspaces of [[workspace], []]) {
+      const form = readyForm(workspaces);
+      const client = new LaunchClient();
+      client.paseoTools = {
+        status: "ready",
+        tools: ["list_projects", "create_workspace", "create_agent"].filter(
+          (tool) => tool !== missing,
+        ),
+        disabledTools: [],
+      };
+      expect(await form.submit(client, () => "unused")).toBeNull();
+      expect(client.agents).toEqual([]);
+      expect(client.workspaces).toEqual([]);
+      expect(form.getState()).toMatchObject({
+        canSubmit: false,
+        capabilityIssue: "unsupportedHost",
+        submission: "idle",
+      });
+    }
+  },
+);
 
 it.each(["local", "worktree"] as const)(
   "launches one coordinator with %s worker instructions and the selected configuration",
@@ -212,6 +247,7 @@ it("blocks duplicate submission and freezes inputs while creating", async () => 
   const form = readyForm();
   let complete!: (value: { id: string; workspaceId: string }) => void;
   const client: TaskLaunchClient = {
+    listProviderFeatures: () => new LaunchClient().listProviderFeatures(),
     createAgent: () =>
       new Promise((resolve) => {
         complete = resolve;
@@ -256,4 +292,90 @@ it("gives fixed instructions for validation, parallel children, notifications, a
   ]) {
     expect(prompt.toLowerCase()).toContain(instruction.toLowerCase());
   }
+});
+
+it.each([
+  { availability: undefined, issue: "unsupportedHost" },
+  { availability: { status: "disabled" }, issue: "toolsDisabled" },
+  { availability: { status: "unsupported" }, issue: "unsupportedProvider" },
+  {
+    availability: {
+      status: "ready",
+      tools: ["create_workspace", "create_agent"],
+      disabledTools: ["list_projects"],
+    },
+    issue: "toolsDisabled",
+  },
+] satisfies Array<{ availability: PaseoToolAvailability | undefined; issue: string }>)(
+  "blocks unavailable tool states with a visible reason: $issue",
+  async ({ availability, issue }) => {
+    const form = readyForm();
+    const client = new LaunchClient();
+    client.paseoTools = availability;
+    form.applyAgentConfig(config, getTaskCapabilityIssue(availability));
+    expect(form.getState()).toMatchObject({ canSubmit: false, capabilityIssue: issue });
+    expect(await form.submit(client, () => "unused")).toBeNull();
+    // A policy change after opening is also caught by the fresh submit check.
+    form.applyAgentConfig(config, null);
+    expect(await form.submit(client, () => "unused")).toBeNull();
+    expect(form.getState()).toMatchObject({ canSubmit: false, capabilityIssue: issue });
+    expect(client.agents).toEqual([]);
+    expect(client.workspaces).toEqual([]);
+  },
+);
+
+it("supports arbitrary provider IDs without changing the launch request", async () => {
+  const form = readyForm();
+  form.applyAgentConfig({ ...config, provider: "my-provider" }, null);
+  const client = new LaunchClient();
+  await form.submit(client, () => "custom");
+  expect(client.agents[0]?.config?.provider).toBe("my-provider");
+});
+
+it.each(["close", "provider", "targets", "policy"])(
+  "does not create after %s changes during preflight",
+  async (change) => {
+    const form = readyForm();
+    const client = new LaunchClient();
+    const availability = await client.listProviderFeatures();
+    let resolve!: (value: typeof availability) => void;
+    client.listProviderFeatures = () =>
+      new Promise((done) => {
+        resolve = done;
+      });
+    const submission = form.submit(client, () => "unused");
+    expect(client.agents).toEqual([]);
+    expect(client.workspaces).toEqual([]);
+    if (change === "close") form.close();
+    if (change === "provider")
+      form.applyAgentConfig({ ...config, provider: "different" }, "checkingTools");
+    if (change === "targets") form.applyTargets({ status: "loading" });
+    if (change === "policy") form.applyAgentConfig(config, "toolsDisabled");
+    resolve(availability);
+    expect(await submission).toBeNull();
+    expect(client.agents).toEqual([]);
+    expect(client.workspaces).toEqual([]);
+  },
+);
+
+it("shows preflight errors and allows a retry without creating anything first", async () => {
+  const form = readyForm();
+  const client = new LaunchClient();
+  const listProviderFeatures = client.listProviderFeatures.bind(client);
+  client.listProviderFeatures = async () => {
+    throw new Error("Host disconnected. Reconnect and retry.");
+  };
+  expect(await form.submit(client, () => "unused")).toBeNull();
+  expect(form.getState()).toMatchObject({
+    submission: "idle",
+    error: "Host disconnected. Reconnect and retry.",
+    canSubmit: true,
+  });
+  expect(client.agents).toEqual([]);
+  expect(client.workspaces).toEqual([]);
+  client.listProviderFeatures = listProviderFeatures;
+  expect(await form.submit(client, () => "retry")).toEqual({
+    id: "coordinator",
+    workspaceId: "context",
+  });
 });

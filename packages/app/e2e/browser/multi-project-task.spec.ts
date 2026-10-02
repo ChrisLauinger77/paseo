@@ -17,7 +17,9 @@ import {
 } from "../support/helpers/sidebar";
 
 const providerId = "multi-project-diagnostic";
-const modelId = "pi-profile-model";
+const modelId = "gpt-6.1-sol";
+
+test.use({ e2eInjectPaseoTools: true });
 
 for (const compact of [false, true]) {
   test(`selects projects and gates Worktree in the ${compact ? "compact" : "desktop"} form`, async ({
@@ -63,7 +65,7 @@ for (const compact of [false, true]) {
   });
 }
 
-test("launches labeled coordinators, recovers from failure, and opens them from their sidebar section", async ({
+test("launches labeled coordinators, recovers from preflight failure, and opens them from their sidebar section", async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
@@ -75,9 +77,9 @@ test("launches labeled coordinators, recovers from failure, and opens them from 
   const provider = await seedModelProvider({
     id: providerId,
     label: "Multi-project diagnostic",
-    extends: "pi",
-    command: [executable, path.resolve("e2e/fixtures/fake-pi-rpc.mjs")],
-    models: [{ id: modelId, label: "Pi profile model", description: "Deterministic coordinator" }],
+    extends: "codex",
+    command: [executable, path.resolve("e2e/fixtures/catalog-codex.mjs")],
+    models: [{ id: modelId, label: "Diagnostic model", description: "Deterministic coordinator" }],
   });
   const profiles = await seedAgentProfiles([
     {
@@ -85,7 +87,7 @@ test("launches labeled coordinators, recovers from failure, and opens them from 
       name: "Migration workers",
       provider: providerId,
       model: modelId,
-      thinkingOptionId: "high",
+      thinkingOptionId: "medium",
     },
   ]);
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "multi-task" });
@@ -112,6 +114,7 @@ test("launches labeled coordinators, recovers from failure, and opens them from 
     await rename(executable, `${executable}.parked`);
     await page.getByTestId("multi-project-task-start").click();
     await expect(page.getByTestId("multi-project-task-error")).toBeVisible({ timeout: 60_000 });
+    expect(requests).toEqual([]);
     await expect(page.getByTestId("multi-project-task-prompt")).toHaveValue(
       "Apply the GNOME 52 migration guide.\nKeep this task verbatim.",
     );
@@ -130,7 +133,7 @@ test("launches labeled coordinators, recovers from failure, and opens them from 
     expect(coordinator.model).toBe(modelId);
     expect(coordinator.labels).toEqual({ "paseo.multi-project-task": "true" });
     expect(coordinator.title).toBe("Apply the GNOME 52 migration guide.");
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(1);
     for (const request of requests) {
       expect(request).toContain(first.projectId);
       expect(request).toContain(second.projectId);
@@ -259,5 +262,104 @@ test("launches labeled coordinators, recovers from failure, and opens them from 
     await second.cleanup();
     await first.cleanup();
     await rm(binDir, { recursive: true, force: true });
+  }
+});
+
+test("explains unavailable tools and rechecks policy before creating a coordinator", async ({
+  page,
+}, testInfo) => {
+  const project = await seedWorkspace({ repoPrefix: "multi-task-capabilities-" });
+  const supported = await seedModelProvider({
+    id: "task-tools-supported",
+    label: "Task tools supported",
+    extends: "codex",
+    command: [process.execPath, path.resolve("e2e/fixtures/catalog-codex.mjs")],
+    models: [{ id: modelId, label: "Diagnostic model", description: "Tool-capable provider" }],
+  });
+  const unsupported = await seedModelProvider({
+    id: "task-tools-unsupported",
+    label: "Task tools unsupported",
+    extends: "pi",
+    command: [process.execPath, path.resolve("e2e/fixtures/fake-pi-rpc.mjs")],
+    models: [
+      { id: "pi-profile-model", label: "Unsupported model", description: "No draft tool support" },
+    ],
+  });
+  const profiles = await seedAgentProfiles([
+    {
+      id: "task-supported",
+      name: "Supported tools",
+      provider: "task-tools-supported",
+      model: modelId,
+    },
+    {
+      id: "task-unsupported",
+      name: "Unsupported tools",
+      provider: "task-tools-unsupported",
+      model: "pi-profile-model",
+    },
+  ]);
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "task-tools" });
+  const creations: string[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framesent", ({ payload }) => {
+      const message = payload.toString();
+      if (
+        message.includes('"type":"agent.create.request"') ||
+        message.includes('"type":"workspace.create.request"')
+      )
+        creations.push(message);
+    }),
+  );
+  try {
+    await gotoWorkspace(page, project.workspaceId);
+    await openGlobalNewWorkspaceComposer(page);
+    await page.getByTestId("new-workspace-multi-project-task").click();
+    const sheet = page.getByTestId("multi-project-task-sheet");
+    await sheet.getByTestId("multi-project-task-prompt").fill("Inspect projects");
+    await sheet.getByTestId(`multi-project-task-project-${project.projectId}`).click();
+    await sheet.getByTestId("combined-model-selector").click();
+    await page.getByTestId("model-profile-row-task-unsupported").click();
+    await expect(page.getByTestId("multi-project-task-capability-error")).toContainText(
+      "Select a provider that supports them",
+    );
+    await expect(page.getByTestId("multi-project-task-start")).toBeDisabled();
+    await page.screenshot({ path: testInfo.outputPath("unsupported-provider.png") });
+    await sheet.getByTestId("combined-model-selector").click();
+    await page.getByTestId("model-profile-row-task-supported").click();
+    await expect(page.getByTestId("multi-project-task-start")).toBeEnabled();
+    await client.patchDaemonConfig({
+      providers: { "task-tools-supported": { paseoTools: { disabledTools: ["list_projects"] } } },
+    });
+    await page.getByTestId("multi-project-task-start").click();
+    await expect(page.getByTestId("multi-project-task-capability-error")).toContainText(
+      "Required Paseo tools are disabled",
+    );
+    await expect(page.getByTestId("multi-project-task-start")).toBeDisabled();
+    await page.screenshot({ path: testInfo.outputPath("disabled-tools.png") });
+    expect(creations).toEqual([]);
+    expect(
+      (await client.fetchAgents({ scope: "active" })).entries.filter(({ agent }) =>
+        agent.provider.startsWith("task-tools-"),
+      ),
+    ).toEqual([]);
+    await client.patchDaemonConfig({
+      providers: { "task-tools-supported": { paseoTools: { disabledTools: [] } } },
+    });
+    await sheet.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(sheet).toHaveCount(0);
+    await page.getByTestId("new-workspace-multi-project-task").click();
+    await page.getByTestId("multi-project-task-prompt").fill("Inspect projects");
+    await page.getByTestId(`multi-project-task-project-${project.projectId}`).click();
+    await sheet.getByTestId("combined-model-selector").click();
+    await page.getByTestId("model-profile-row-task-supported").click();
+    await expect(page.getByTestId("multi-project-task-start")).toBeEnabled();
+    expect(creations).toEqual([]);
+  } finally {
+    await client.close();
+    await profiles.restore();
+    await unsupported.restore();
+    await supported.restore();
+    await project.cleanup();
   }
 });

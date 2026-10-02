@@ -110,7 +110,7 @@ export async function seedModelProvider(input: {
   id: string;
   label: string;
   models: SeededProviderModel[];
-  extends?: "claude" | "pi";
+  extends?: "claude" | "pi" | "codex";
   command?: string[];
 }): Promise<HostSeed> {
   const client = await connectAgentProfilesClient();

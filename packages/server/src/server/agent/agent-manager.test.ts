@@ -54,6 +54,7 @@ import type {
 } from "./agent-sdk-types.js";
 import type { PaseoToolCatalog } from "./tools/types.js";
 import type { ProviderDefinition } from "./provider-registry.js";
+import { isPaseoToolEnabled } from "./paseo-tool-policy.js";
 
 const DESKTOP_OPEN_AGENT_TAB_LABEL = getOpenAgentTabLabel("desktop-client");
 const MOBILE_OPEN_AGENT_TAB_LABEL = getOpenAgentTabLabel("mobile-client");
@@ -1743,6 +1744,65 @@ function fakeCodexEmitting(args: FakeCodexEmitterArgs): AgentClient {
 }
 
 const logger = createTestLogger();
+
+test.each([
+  { native: true, mcp: false },
+  { native: false, mcp: true },
+])("draft Paseo tools reflect the catalog and live policy (%j)", async ({ native, mcp }) => {
+  class ToolClient extends TestAgentClient {
+    override readonly capabilities = {
+      ...TEST_CAPABILITIES,
+      supportsNativePaseoTools: native,
+      supportsMcpServers: mcp,
+    };
+  }
+  const client = new ToolClient();
+  let policy = { enabled: true, disabledTools: [] as string[] };
+  const manager = new AgentManager({
+    clients: { custom: client },
+    logger,
+    mcpBaseUrl: "http://127.0.0.1:9999/mcp/agents",
+    resolvePaseoToolPolicy: () => policy,
+    paseoToolCatalogFactory: ({ paseoToolPolicy }) => {
+      const tools = new Map(
+        ["list_projects", "create_workspace", "create_agent"]
+          .filter((name) => isPaseoToolEnabled(paseoToolPolicy, name))
+          .map((name) => [
+            name,
+            { name, description: name, handler: async () => ({ content: [] }) },
+          ]),
+      );
+      return {
+        tools,
+        getTool: (name) => tools.get(name),
+        executeTool: async () => ({ content: [] }),
+      };
+    },
+  });
+  expect(await manager.getPaseoToolAvailability("custom")).toEqual({
+    status: "ready",
+    tools: ["list_projects", "create_workspace", "create_agent"],
+    disabledTools: [],
+  });
+  policy = { enabled: true, disabledTools: ["list_projects"] };
+  expect(await manager.getPaseoToolAvailability("custom")).toEqual({
+    status: "ready",
+    tools: ["create_workspace", "create_agent"],
+    disabledTools: ["list_projects"],
+  });
+  policy = { enabled: false, disabledTools: [] };
+  expect(await manager.getPaseoToolAvailability("custom")).toEqual({ status: "disabled" });
+  policy = { enabled: true, disabledTools: [] };
+  manager.setPaseoToolsEnabled(false);
+  expect(await manager.getPaseoToolAvailability("custom")).toEqual({ status: "disabled" });
+  manager.setPaseoToolsEnabled(true);
+  Object.assign(client.capabilities, {
+    supportsNativePaseoTools: false,
+    supportsMcpServers: false,
+  });
+  expect(await manager.getPaseoToolAvailability("custom")).toEqual({ status: "unsupported" });
+  expect(manager.listAgents()).toEqual([]);
+});
 
 test("does not register a session that finishes starting after shutdown begins", async () => {
   const client = new HeldAgentCreationClient();

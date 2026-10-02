@@ -10,6 +10,7 @@ import { getHostRuntimeStore, useHostRuntimeSnapshot } from "@/runtime/host-runt
 import { useSessionStore } from "@/stores/session-store";
 import { resolveEffectiveModel } from "@/provider-selection/resolve-agent-form";
 import { openMultiProjectTaskForm, type TaskTargets } from "./form-model";
+import { getTaskCapabilityIssue, type TaskCapabilityIssue } from "./capabilities";
 
 export function useTaskForm(serverId: string) {
   const runtime = useHostRuntimeSnapshot(serverId);
@@ -44,6 +45,7 @@ export function useTaskForm(serverId: string) {
     (option) => option.id === selection.selectedThinkingOptionId,
   )?.id;
   const features = useDraftAgentFeatures({
+    refreshOnMount: true,
     serverId,
     provider: selection.selectedProvider,
     cwd: state.workingDir,
@@ -97,9 +99,16 @@ export function useTaskForm(serverId: string) {
     ],
   );
 
+  let capabilityIssue: TaskCapabilityIssue | null = "checkingTools";
+  if (features.error) capabilityIssue = "toolCheckFailed";
+  else if (config) capabilityIssue = getTaskCapabilityIssue(features.paseoTools);
+
   useEffect(() => getHostRuntimeStore().acquireDirectoryDemand(serverId), [serverId]);
   useEffect(() => () => model.close(), [model]);
   useEffect(() => model.applyTargets(targets), [model, targets]);
-  useEffect(() => model.applyAgentConfig(config), [model, config]);
+  useEffect(
+    () => model.applyAgentConfig(config, capabilityIssue),
+    [model, config, capabilityIssue],
+  );
   return { model, state, selection, profiles };
 }

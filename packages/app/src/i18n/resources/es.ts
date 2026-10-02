@@ -27,6 +27,15 @@ export const es: TranslationResources = {
     total: "{{total}} coincidencias",
   },
   multiProjectTask: {
+    checkingTools: "Comprobando las herramientas de Paseo…",
+    unsupportedHost:
+      "Este host de Paseo no admite tareas multiproyecto. Actualiza el host para disponer de las herramientas de descubrimiento de proyectos y coordinación necesarias.",
+    toolsDisabled:
+      "Las herramientas de Paseo necesarias están desactivadas. Activa la inyección de herramientas y las herramientas necesarias para este proveedor en la configuración del host y vuelve a abrir este formulario.",
+    unsupportedProvider:
+      "Este proveedor no declara compatibilidad con las herramientas de Paseo. Selecciona un proveedor compatible.",
+    toolCheckFailed:
+      "No se pudieron comprobar las herramientas de Paseo. Vuelve a conectarte al host y abre de nuevo este formulario para reintentar.",
     sidebarTitle: "Tareas de varios proyectos",
     missingProjects:
       "Algunos proyectos seleccionados ya no están registrados. Desmárcalos para continuar.",

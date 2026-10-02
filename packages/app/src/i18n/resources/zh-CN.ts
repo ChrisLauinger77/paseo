@@ -26,6 +26,12 @@ export const zhCN: TranslationResources = {
     total: "{{total}} 个匹配项",
   },
   multiProjectTask: {
+    checkingTools: "正在检查 Paseo 工具…",
+    unsupportedHost: "此 Paseo 主机不支持多项目任务。请更新主机，以提供所需的项目发现和编排工具。",
+    toolsDisabled:
+      "所需的 Paseo 工具已禁用。请在主机配置中为此提供商启用工具注入和所需工具，然后重新打开此表单。",
+    unsupportedProvider: "此提供商未声明支持 Paseo 工具。请选择支持这些工具的提供商。",
+    toolCheckFailed: "无法检查 Paseo 工具。请重新连接主机并重新打开此表单以重试。",
     sidebarTitle: "多项目任务",
     missingProjects: "部分所选项目已不再注册。请取消选择这些项目后继续。",
     title: "多项目任务",

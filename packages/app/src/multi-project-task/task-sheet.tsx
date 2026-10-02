@@ -51,6 +51,15 @@ export function MultiProjectTaskSheet({
   const footer = useMemo(
     () => (
       <View style={styles.footer}>
+        {state.capabilityIssue && state.workingDir ? (
+          <Text
+            style={styles.error}
+            accessibilityRole="alert"
+            testID="multi-project-task-capability-error"
+          >
+            {t(`multiProjectTask.${state.capabilityIssue}`)}
+          </Text>
+        ) : null}
         {state.error ? (
           <Text style={styles.error} accessibilityRole="alert" testID="multi-project-task-error">
             {state.error}
@@ -73,7 +82,17 @@ export function MultiProjectTaskSheet({
         </View>
       </View>
     ),
-    [close, pending, size, state.canSubmit, state.error, submitPress, t],
+    [
+      close,
+      pending,
+      size,
+      state.canSubmit,
+      state.error,
+      state.capabilityIssue,
+      state.workingDir,
+      submitPress,
+      t,
+    ],
   );
   const isolationOptions = useMemo(
     () => [

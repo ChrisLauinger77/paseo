@@ -993,6 +993,8 @@ export class Session {
           this.supports(CLIENT_CAPS.providerSnapshotReferences),
         listProviderAvailability: () => this.agentManager.listProviderAvailability(),
         listDraftFeatures: (config) => this.agentManager.listDraftFeatures(config),
+        getPaseoToolAvailability: (provider) =>
+          this.agentManager.getPaseoToolAvailability(provider),
       },
       providerSnapshotManager,
       logger: this.sessionLogger,

@@ -23,6 +23,7 @@ export function useDraftAgentFeatures(input: {
   modelId: string | null | undefined;
   thinkingOptionId: string | null | undefined;
   initialFeatureValues?: Record<string, unknown>;
+  refreshOnMount?: boolean;
 }) {
   const { t } = useTranslation();
   const { serverId, provider, cwd, modeId, modelId, thinkingOptionId, initialFeatureValues } =
@@ -67,6 +68,7 @@ export function useDraftAgentFeatures(input: {
     ],
     enabled: Boolean(serverId && client && isConnected && draftConfig),
     staleTime: 5 * 60 * 1000,
+    refetchOnMount: input.refreshOnMount ? "always" : true,
     queryFn: async () => {
       if (!client || !draftConfig) {
         throw new Error(t("workspace.terminal.hostDisconnected"));
@@ -75,10 +77,10 @@ export function useDraftAgentFeatures(input: {
       if (payload.error) {
         throw new Error(payload.error);
       }
-      return payload.features ?? [];
+      return { ...payload, features: payload.features ?? [] };
     },
   });
-  const availableFeaturesRaw = featuresQuery.data;
+  const availableFeaturesRaw = featuresQuery.data?.features;
   const availableFeatures = useMemo(() => availableFeaturesRaw ?? [], [availableFeaturesRaw]);
   const featureValues = useMemo(
     () =>
@@ -152,7 +154,9 @@ export function useDraftAgentFeatures(input: {
   return {
     features,
     featureValues: effectiveFeatureValues,
-    isLoading: featuresQuery.isLoading,
+    isLoading: featuresQuery.isLoading || Boolean(input.refreshOnMount && featuresQuery.isFetching),
+    error: featuresQuery.error,
+    paseoTools: featuresQuery.data?.paseoTools,
     setFeatureValue,
     applyProfileFeatureValues,
   };

@@ -1,13 +1,67 @@
 import { describe, expect, it } from "vitest";
+import { validateWSOutboundMessage } from "./validation/ws-outbound.js";
 
 import {
   AgentFeatureSchema,
   AgentSnapshotPayloadSchema,
+  ListProviderFeaturesResponseMessageSchema,
   SetAgentFeatureRequestMessageSchema,
   SetAgentFeatureResponseMessageSchema,
 } from "./messages.js";
 
 describe("agent feature schemas", () => {
+  it.each([
+    undefined,
+    { status: "disabled" },
+    { status: "unsupported" },
+    {
+      status: "ready",
+      tools: ["list_projects", "create_workspace", "create_agent"],
+      disabledTools: [],
+    },
+  ])("validates optional Paseo availability on the wire: %j", (paseoTools) => {
+    const envelope = {
+      type: "session",
+      message: {
+        type: "list_provider_features_response",
+        payload: {
+          provider: "custom",
+          features: [],
+          paseoTools,
+          requestId: "tools",
+          fetchedAt: "now",
+        },
+      },
+    };
+    expect(validateWSOutboundMessage(envelope)).toEqual({ success: true, data: envelope });
+    const legacyPayload = ListProviderFeaturesResponseMessageSchema.shape.payload.omit({
+      paseoTools: true,
+    });
+    expect(legacyPayload.parse(envelope.message.payload)).toEqual({
+      provider: "custom",
+      features: [],
+      requestId: "tools",
+      fetchedAt: "now",
+    });
+  });
+  it("accepts old provider feature responses and preserves effective Paseo tools", () => {
+    const response = {
+      type: "list_provider_features_response",
+      payload: { provider: "custom-agent", features: [], fetchedAt: "now", requestId: "tools" },
+    };
+    expect(ListProviderFeaturesResponseMessageSchema.parse(response)).toEqual(response);
+    const paseoTools = {
+      status: "ready",
+      tools: ["list_projects", "create_agent"],
+      disabledTools: ["create_workspace"],
+    };
+    expect(
+      ListProviderFeaturesResponseMessageSchema.parse({
+        ...response,
+        payload: { ...response.payload, paseoTools },
+      }).payload,
+    ).toEqual({ ...response.payload, paseoTools });
+  });
   it("parses valid toggle features", () => {
     const parsed = AgentFeatureSchema.parse({
       type: "toggle",

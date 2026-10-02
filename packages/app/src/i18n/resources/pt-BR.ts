@@ -27,6 +27,15 @@ export const ptBR: TranslationResources = {
     total: "{{total}} correspondências",
   },
   multiProjectTask: {
+    checkingTools: "Verificando as ferramentas do Paseo…",
+    unsupportedHost:
+      "Este host do Paseo não oferece suporte a tarefas em vários projetos. Atualize o host para disponibilizar as ferramentas necessárias de descoberta de projetos e orquestração.",
+    toolsDisabled:
+      "As ferramentas necessárias do Paseo estão desativadas. Ative a injeção de ferramentas e as ferramentas necessárias para este provedor na configuração do host e reabra este formulário.",
+    unsupportedProvider:
+      "Este provedor não declara suporte às ferramentas do Paseo. Selecione um provedor compatível.",
+    toolCheckFailed:
+      "Não foi possível verificar as ferramentas do Paseo. Reconecte-se ao host e reabra este formulário para tentar novamente.",
     sidebarTitle: "Tarefas de vários projetos",
     missingProjects:
       "Alguns projetos selecionados não estão mais registrados. Desmarque-os para continuar.",

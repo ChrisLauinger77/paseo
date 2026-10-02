@@ -4,9 +4,13 @@ import type {
   CreateWorkspaceRequestOptions,
 } from "@getpaseo/client/internal/daemon-client";
 import type { ProjectDescriptor, WorkspaceDescriptor } from "@/stores/session-store";
-import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
+import type {
+  AgentSnapshotPayload,
+  ListProviderFeaturesResponseMessage,
+} from "@getpaseo/protocol/messages";
 import { buildOrchestrationPrompt } from "./prompt";
 import { deriveTaskTitle, MULTI_PROJECT_TASK_LABEL } from "./metadata";
+import { getTaskCapabilityIssue, type TaskCapabilityIssue } from "./capabilities";
 
 export type TaskProject = Pick<
   ProjectDescriptor,
@@ -27,6 +31,11 @@ export type TaskTargets =
 
 type Coordinator = Pick<AgentSnapshotPayload, "id" | "workspaceId">;
 export interface TaskLaunchClient {
+  listProviderFeatures(
+    config: AgentSessionConfig,
+  ): Promise<
+    Pick<ListProviderFeaturesResponseMessage["payload"], "provider" | "paseoTools" | "error">
+  >;
   createAgent(input: CreateAgentRequestOptions): Promise<Coordinator>;
   createWorkspace(
     input: CreateWorkspaceRequestOptions,
@@ -42,6 +51,7 @@ export interface TaskFormState {
   isolation: "local" | "worktree";
   canUseWorktree: boolean;
   agentConfig: TaskAgentConfig | null;
+  capabilityIssue: TaskCapabilityIssue | null;
   workingDir: string;
   canSubmit: boolean;
   submission: "idle" | "pending" | "succeeded";
@@ -60,6 +70,7 @@ export function openMultiProjectTaskForm(targets: TaskTargets) {
     isolation: "local",
     canUseWorktree: false,
     agentConfig: null,
+    capabilityIssue: "checkingTools",
     workingDir: "",
     canSubmit: false,
     submission: "idle",
@@ -106,6 +117,7 @@ export function openMultiProjectTaskForm(targets: TaskTargets) {
         state.workingDir,
       canSubmit:
         state.submission === "idle" &&
+        state.capabilityIssue === null &&
         validSelection &&
         Boolean(state.prompt.trim() && state.agentConfig?.provider && state.agentConfig.model),
     };
@@ -127,8 +139,11 @@ export function openMultiProjectTaskForm(targets: TaskTargets) {
     applyTargets(next: TaskTargets) {
       publish({ targets: next });
     },
-    applyAgentConfig(agentConfig: TaskAgentConfig | null) {
-      publish({ agentConfig });
+    applyAgentConfig(
+      agentConfig: TaskAgentConfig | null,
+      capabilityIssue: TaskCapabilityIssue | null,
+    ) {
+      publish({ agentConfig, capabilityIssue });
     },
     setPrompt(prompt: string) {
       if (state.submission === "idle") publish({ prompt, error: null });
@@ -160,29 +175,47 @@ export function openMultiProjectTaskForm(targets: TaskTargets) {
     },
     async submit(client: TaskLaunchClient, createId: () => string) {
       if (closed || !state.canSubmit || !state.agentConfig) return null;
-      const projects = resolveSelectedProjects();
-      const workspace = coordinatorWorkspace();
-      const initialPrompt = buildOrchestrationPrompt({
-        task: state.prompt,
-        projects,
-        isolation: state.isolation,
-        agent: state.agentConfig,
-      });
-      const request: CreateAgentRequestOptions = {
-        config: {
-          ...state.agentConfig,
-          cwd: state.workingDir,
-          title: deriveTaskTitle(state.prompt),
-        },
-        labels: { [MULTI_PROJECT_TASK_LABEL]: "true" },
-        initialPrompt,
-      };
-      const fingerprint = JSON.stringify([initialPrompt, state.agentConfig]);
-      if (attempt?.fingerprint !== fingerprint)
-        attempt = { fingerprint, id: createId(), request, workspaceId: workspace?.id };
-      const { id: idempotencyKey, request: originalRequest, workspaceId } = attempt;
+      const agentConfig = state.agentConfig;
+      const launchTargets = state.targets;
+      const workingDir = state.workingDir;
       publish({ submission: "pending", error: null });
       try {
+        // Cached form data can outlive a policy change or a daemon reconnect.
+        // Resolve against this provider again before either creation RPC.
+        const features = await client.listProviderFeatures({ ...agentConfig, cwd: workingDir });
+        if (features.error) throw new Error(features.error);
+        if (closed) return null;
+        const inputsChanged = state.agentConfig !== agentConfig || state.targets !== launchTargets;
+        if (inputsChanged || state.capabilityIssue !== null) {
+          publish({ submission: "idle" });
+          return null;
+        }
+        const capabilityIssue = getTaskCapabilityIssue(features.paseoTools);
+        if (capabilityIssue) {
+          publish({ capabilityIssue, submission: "idle" });
+          return null;
+        }
+        const projects = resolveSelectedProjects();
+        const workspace = coordinatorWorkspace();
+        const initialPrompt = buildOrchestrationPrompt({
+          task: state.prompt,
+          projects,
+          isolation: state.isolation,
+          agent: state.agentConfig,
+        });
+        const request: CreateAgentRequestOptions = {
+          config: {
+            ...state.agentConfig,
+            cwd: state.workingDir,
+            title: deriveTaskTitle(state.prompt),
+          },
+          labels: { [MULTI_PROJECT_TASK_LABEL]: "true" },
+          initialPrompt,
+        };
+        const fingerprint = JSON.stringify([initialPrompt, state.agentConfig]);
+        if (attempt?.fingerprint !== fingerprint)
+          attempt = { fingerprint, id: createId(), request, workspaceId: workspace?.id };
+        const { id: idempotencyKey, request: originalRequest, workspaceId } = attempt;
         // Agent + workspace creation is one existing operation when no context exists.
         const agent = workspaceId
           ? await client.createAgent({ ...originalRequest, workspaceId, idempotencyKey })

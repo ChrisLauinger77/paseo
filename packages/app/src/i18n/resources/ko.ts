@@ -26,6 +26,15 @@ export const ko: TranslationResources = {
     total: "일치 항목 {{total}}개",
   },
   multiProjectTask: {
+    checkingTools: "Paseo 도구 확인 중…",
+    unsupportedHost:
+      "이 Paseo 호스트는 다중 프로젝트 작업을 지원하지 않습니다. 필요한 프로젝트 검색 및 조정 도구를 사용할 수 있도록 호스트를 업데이트하세요.",
+    toolsDisabled:
+      "필요한 Paseo 도구가 비활성화되어 있습니다. 호스트 설정에서 이 공급자의 도구 주입과 필요한 도구를 활성화한 다음 이 양식을 다시 여세요.",
+    unsupportedProvider:
+      "이 공급자는 Paseo 도구 지원을 명시하지 않습니다. 지원하는 공급자를 선택하세요.",
+    toolCheckFailed:
+      "Paseo 도구를 확인하지 못했습니다. 호스트에 다시 연결하고 이 양식을 다시 열어 재시도하세요.",
     sidebarTitle: "다중 프로젝트 작업",
     missingProjects:
       "선택한 일부 프로젝트가 더 이상 등록되어 있지 않습니다. 선택을 해제하고 계속하세요.",

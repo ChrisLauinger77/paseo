@@ -59,6 +59,7 @@ function makeSubsystem(options: MakeOptions = {}) {
     supportsCompactProviderSnapshots: () => options.supportsCompactProviderSnapshots ?? false,
     listProviderAvailability: async () => [],
     listDraftFeatures: async () => [],
+    getPaseoToolAvailability: async () => ({ status: "disabled" }),
     ...options.host,
   };
   const providerSnapshotManager = createStub<ProviderSnapshotManager>({
@@ -296,6 +297,29 @@ describe("ProviderCatalogSession", () => {
     });
   });
 
+  it("includes effective Paseo tools in the existing draft features response", async () => {
+    const paseoTools = {
+      status: "ready" as const,
+      tools: ["list_projects", "create_workspace", "create_agent"],
+      disabledTools: [],
+    };
+    const getPaseoToolAvailability = vi.fn(async () => paseoTools);
+    const { subsystem, emitted } = makeSubsystem({ host: { getPaseoToolAvailability } });
+    await subsystem.handleListProviderFeaturesRequest({
+      type: "list_provider_features_request",
+      requestId: "tools",
+      draftConfig: { provider: "custom", cwd: "/tmp/project" },
+    });
+    expect(getPaseoToolAvailability).toHaveBeenCalledWith("custom");
+    expect(findByType(emitted, "list_provider_features_response")?.payload).toMatchObject({
+      provider: "custom",
+      features: [],
+      paseoTools,
+      error: null,
+      requestId: "tools",
+    });
+  });
+
   it("surfaces a feature-list failure inline, not as an rpc_error", async () => {
     const { subsystem, emitted } = makeSubsystem({
       host: {
@@ -380,6 +404,7 @@ it("announces shared content without retransmitting models or hashing discovery 
         supportsProviderSnapshotReferences: () => references,
         listProviderAvailability: async () => [],
         listDraftFeatures: async () => [],
+        getPaseoToolAvailability: async () => ({ status: "disabled" }),
       },
     });
   const emitted: SessionOutboundMessage[] = [];
