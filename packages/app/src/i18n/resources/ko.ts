@@ -25,6 +25,23 @@ export const ko: TranslationResources = {
     position: "{{current}} / {{total}}",
     total: "일치 항목 {{total}}개",
   },
+  multiProjectTask: {
+    missingProjects:
+      "선택한 일부 프로젝트가 더 이상 등록되어 있지 않습니다. 선택을 해제하고 계속하세요.",
+    title: "다중 프로젝트 작업",
+    start: "시작",
+    prompt: "작업 지침",
+    projects: "프로젝트",
+    selectProject: "프로젝트를 하나 이상 선택하세요.",
+    loading: "연결 및 프로젝트 로드 중…",
+    empty: "이 호스트에 등록된 프로젝트가 없습니다.",
+    isolation: "격리",
+    local: "로컬",
+    worktree: "Worktree",
+    model: "모델 / 프로필",
+    mode: "모드",
+    thinking: "사고",
+  },
   common: {
     bottomSheetBackdrop: "하단 시트 배경",
     back: "뒤로",

@@ -26,6 +26,23 @@ export const ja: TranslationResources = {
     position: "{{current}} / {{total}}",
     total: "{{total}} 件の一致",
   },
+  multiProjectTask: {
+    missingProjects:
+      "選択した一部のプロジェクトは登録されていません。選択を解除して続行してください。",
+    title: "複数プロジェクトのタスク",
+    start: "開始",
+    prompt: "タスクの指示",
+    projects: "プロジェクト",
+    selectProject: "プロジェクトを1つ以上選択してください。",
+    loading: "接続してプロジェクトを読み込み中…",
+    empty: "このホストに登録済みのプロジェクトはありません。",
+    isolation: "分離",
+    local: "ローカル",
+    worktree: "Worktree",
+    model: "モデル / プロファイル",
+    mode: "モード",
+    thinking: "思考",
+  },
   common: {
     bottomSheetBackdrop: "ボトムシートの背景",
     back: "戻る",

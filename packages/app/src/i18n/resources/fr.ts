@@ -26,6 +26,23 @@ export const fr: TranslationResources = {
     position: "{{current}} sur {{total}}",
     total: "{{total}} résultats",
   },
+  multiProjectTask: {
+    missingProjects:
+      "Certains projets sélectionnés ne sont plus enregistrés. Désélectionnez-les pour continuer.",
+    title: "Tâche multi-projets",
+    start: "Démarrer",
+    prompt: "Consigne de la tâche",
+    projects: "Projets",
+    selectProject: "Sélectionnez au moins un projet.",
+    loading: "Connexion et chargement des projets…",
+    empty: "Aucun projet enregistré sur cet hôte.",
+    isolation: "Isolation",
+    local: "Local",
+    worktree: "Worktree",
+    model: "Modèle / profil",
+    mode: "Mode",
+    thinking: "Raisonnement",
+  },
   common: {
     bottomSheetBackdrop: "Arrière-plan du panneau inférieur",
     back: "Retour",

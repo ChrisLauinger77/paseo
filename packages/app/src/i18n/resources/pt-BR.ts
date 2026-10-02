@@ -26,6 +26,23 @@ export const ptBR: TranslationResources = {
     position: "{{current}} de {{total}}",
     total: "{{total}} correspondências",
   },
+  multiProjectTask: {
+    missingProjects:
+      "Alguns projetos selecionados não estão mais registrados. Desmarque-os para continuar.",
+    title: "Tarefa em vários projetos",
+    start: "Iniciar",
+    prompt: "Instruções da tarefa",
+    projects: "Projetos",
+    selectProject: "Selecione pelo menos um projeto.",
+    loading: "Conectando e carregando projetos…",
+    empty: "Nenhum projeto registrado neste host.",
+    isolation: "Isolamento",
+    local: "Local",
+    worktree: "Worktree",
+    model: "Modelo / perfil",
+    mode: "Modo",
+    thinking: "Raciocínio",
+  },
   common: {
     bottomSheetBackdrop: "Fundo do painel inferior",
     back: "Voltar",

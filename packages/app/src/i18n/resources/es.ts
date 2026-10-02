@@ -26,6 +26,23 @@ export const es: TranslationResources = {
     position: "{{current}} de {{total}}",
     total: "{{total}} coincidencias",
   },
+  multiProjectTask: {
+    missingProjects:
+      "Algunos proyectos seleccionados ya no están registrados. Desmárcalos para continuar.",
+    title: "Tarea multiproyecto",
+    start: "Iniciar",
+    prompt: "Instrucciones de la tarea",
+    projects: "Proyectos",
+    selectProject: "Selecciona al menos un proyecto.",
+    loading: "Conectando y cargando proyectos…",
+    empty: "No hay proyectos registrados en este host.",
+    isolation: "Aislamiento",
+    local: "Local",
+    worktree: "Worktree",
+    model: "Modelo / perfil",
+    mode: "Modo",
+    thinking: "Razonamiento",
+  },
   common: {
     bottomSheetBackdrop: "Fondo del panel inferior",
     back: "Atrás",

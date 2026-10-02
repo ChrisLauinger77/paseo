@@ -26,6 +26,23 @@ export const ru: TranslationResources = {
     position: "{{current}} из {{total}}",
     total: "Совпадений: {{total}}",
   },
+  multiProjectTask: {
+    missingProjects:
+      "Некоторые выбранные проекты больше не зарегистрированы. Снимите их выделение, чтобы продолжить.",
+    title: "Задача для нескольких проектов",
+    start: "Запустить",
+    prompt: "Инструкции задачи",
+    projects: "Проекты",
+    selectProject: "Выберите хотя бы один проект.",
+    loading: "Подключение и загрузка проектов…",
+    empty: "На этом хосте нет зарегистрированных проектов.",
+    isolation: "Изоляция",
+    local: "Локально",
+    worktree: "Worktree",
+    model: "Модель / профиль",
+    mode: "Режим",
+    thinking: "Мышление",
+  },
   common: {
     bottomSheetBackdrop: "Фон нижней панели",
     back: "Назад",

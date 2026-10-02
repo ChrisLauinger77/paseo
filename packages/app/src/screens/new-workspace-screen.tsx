@@ -122,6 +122,7 @@ import {
 } from "./new-workspace-initial-context";
 import { buildNewWorkspaceProjectIconTargets } from "./new-workspace/project-icon-targets";
 import { useNewWorkspaceProjectPicker } from "./new-workspace/project-picker";
+import { MultiProjectTaskAction } from "@/multi-project-task/action";
 import { ImportSessionButton } from "./new-workspace/import-session-button";
 import { useImportSession } from "@/hooks/use-import-session";
 import {
@@ -2429,6 +2430,10 @@ export function NewWorkspaceScreen({
       agentControls={agentControlsWithDisabled}
     />
   );
+  const multiProjectTaskAction = useMemo(
+    () => <MultiProjectTaskAction serverId={selectedServerId} />,
+    [selectedServerId],
+  );
   return (
     <FileDropZone style={styles.container}>
       <ScreenHeader left={screenHeaderLeft} borderless />
@@ -2439,6 +2444,7 @@ export function NewWorkspaceScreen({
           title={t("newWorkspace.title")}
           formStack={formStack}
           onImportSession={importSession.open}
+          multiProjectTaskAction={multiProjectTaskAction}
         >
           {composer}
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
@@ -2454,19 +2460,26 @@ function NewWorkspaceLayout({
   title,
   formStack,
   onImportSession,
+  multiProjectTaskAction,
   children,
 }: {
   isCompact: boolean;
   title: string;
   formStack: ReactNode;
   onImportSession: () => void;
+  multiProjectTaskAction: ReactNode;
   children: ReactNode;
 }) {
   // At the top of the screen on compact layouts, under the composer otherwise.
   const importSessionButton = <ImportSessionButton compact={isCompact} onPress={onImportSession} />;
   const setupFields = (
     <>
-      {isCompact ? <View style={styles.compactTopActions}>{importSessionButton}</View> : null}
+      {isCompact ? (
+        <View style={styles.compactTopActions}>
+          {importSessionButton}
+          {multiProjectTaskAction}
+        </View>
+      ) : null}
       <View style={styles.composerTitleContainer} pointerEvents="none">
         <Text style={styles.composerTitle}>{title}</Text>
       </View>
@@ -2478,7 +2491,12 @@ function NewWorkspaceLayout({
       {setupFields}
       <>
         {children}
-        {isCompact ? null : importSessionButton}
+        {isCompact ? null : (
+          <View style={styles.secondaryActions}>
+            {importSessionButton}
+            {multiProjectTaskAction}
+          </View>
+        )}
       </>
     </ComposerDock>
   );
@@ -2499,6 +2517,12 @@ const styles = StyleSheet.create((theme) => ({
   compactTopActions: {
     flex: 1,
     paddingHorizontal: theme.spacing[3],
+  },
+  secondaryActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[2],
   },
   composerTitleContainer: {
     marginBottom: theme.spacing[8],
