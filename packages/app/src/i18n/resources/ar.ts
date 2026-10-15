@@ -55,6 +55,7 @@ export const ar: TranslationResources = {
     back: "خلف",
     loading: "تحميل...",
     actions: {
+      save: "حفظ",
       back: "خلف",
       cancel: "يلغي",
       close: "يغلق",
@@ -148,6 +149,8 @@ export const ar: TranslationResources = {
     input: {
       accessibilityLabel: "وكيل الرسائل...",
       terminalAccessibilityLabel: "Terminal prompt",
+      fullscreen: "ملء الشاشة",
+      exitFullscreen: "الخروج من ملء الشاشة",
       focusHint: "{{shortcut}}للتركيز",
       addAttachment: "إضافة مرفق",
       interruptAgent: "عامل المقاطعة",
@@ -635,6 +638,9 @@ export const ar: TranslationResources = {
       updateHost: "حدّث المضيف لاستخدام عارض الطرفية الأصلي.",
       unableToSubscribe: "غير قادر على الاشتراك في المحطة",
     },
+    sheet: {
+      openAsTab: "فتح كعلامة تبويب",
+    },
     tabs: {
       loading: "تحميل...",
       modified: "تغييرات غير محفوظة",
@@ -650,7 +656,7 @@ export const ar: TranslationResources = {
       },
       switcher: {
         trigger: "تبديل علامات التبويب (فتح{{count}})",
-        title: "علامة التبويب التبديل",
+        title: "علامات تبويب الـ Workspace",
         searchPlaceholder: "علامات تبويب البحث",
       },
       menu: {
@@ -1172,6 +1178,7 @@ export const ar: TranslationResources = {
       done: "تم",
     },
     display: {
+      showBackground: "إظهار مساحات العمل في الخلفية",
       trigger: "تفضيلات العرض",
       heading: "العرض",
       grouping: {
@@ -2029,6 +2036,17 @@ export const ar: TranslationResources = {
     accessibility: "تم استخدام نافذة السياق{{percentage}}%",
   },
   review: {
+    feedback: {
+      send: "إرسال الملاحظات ({{count}})",
+      sending: "جارٍ إرسال الملاحظات ({{count}})",
+      chooseAgent: "اختر وكيلاً",
+      sent: "تم إرسال الملاحظات إلى {{recipient}}",
+      "no-agents": "افتح علامة تبويب وكيل في مساحة العمل هذه لإرسال الملاحظات.",
+      disconnected: "اتصل بالمضيف لإرسال الملاحظات.",
+      "no-context": "لم تعد التعليقات المحفوظة تتطابق مع هذا الفرق.",
+      failed: "تعذر إرسال الملاحظات. حاول مرة أخرى.",
+      prompt: "يرجى معالجة مراجعة الكود هذه.",
+    },
     comment: {
       add: "إضافة تعليق المراجعة",
       edit: "تحرير تعليق المراجعة",

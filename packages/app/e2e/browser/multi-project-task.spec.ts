@@ -239,9 +239,11 @@ test("launches labeled coordinators, recovers from preflight failure, and opens 
     await page.screenshot({ path: testInfo.outputPath("multi-project-sidebar-compact.png") });
     await row.click();
     await expectMobileAgentSidebarHidden(page);
-    await expect(page.getByTestId("workspace-tab-switcher-trigger")).toContainText(
-      coordinator.title!,
-    );
+    await expect(page.getByTestId("workspace-tab-switcher-trigger")).toHaveText("3");
+    await openMobileAgentSidebar(page);
+    await expect(row).toHaveAttribute("aria-selected", "true");
+    await row.click();
+    await expectMobileAgentSidebarHidden(page);
     await client.archiveAgent(another.id);
     await openMobileAgentSidebar(page);
     await expect(

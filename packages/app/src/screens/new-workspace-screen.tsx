@@ -17,6 +17,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Folder, FolderPlus, GitBranch, GitPullRequest } from "lucide-react-native";
 import { Composer } from "@/composer";
 import { ComposerDock } from "@/composer/dock";
+import { useComposerEditingSession, useComposerFullscreen } from "@/composer/editing-session";
 import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import {
   resolveComposerAttachmentSubmitFormat,
@@ -31,8 +32,7 @@ import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
-import { SidebarMenuToggle } from "@/components/headers/menu-header";
-import { ScreenHeader } from "@/components/headers/screen-header";
+import { MenuHeader } from "@/components/headers/menu-header";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useToast } from "@/contexts/toast-context";
 import { useAgentInputDraft } from "@/composer/draft/input-draft";
@@ -893,7 +893,7 @@ function buildWorkspaceDraftSetupFromComposer(input: {
   return {
     provider: input.provider,
     cwd: input.cwd,
-    modeId: input.composerState.selectedMode || null,
+    modeId: input.composerState.effectiveModeId || null,
     model: input.composerState.effectiveModelId || null,
     thinkingOptionId: input.composerState.effectiveThinkingOptionId || null,
     featureValues: input.composerState.featureValues ?? {},
@@ -973,7 +973,7 @@ async function createWorkspaceChatAgent(input: CreateChatAgentInput): Promise<Su
     config: {
       provider,
       cwd,
-      modeId: composerState.selectedMode || undefined,
+      modeId: composerState.effectiveModeId || undefined,
       model: composerState.effectiveModelId || undefined,
       thinkingOptionId: composerState.effectiveThinkingOptionId || undefined,
       featureValues: composerState.featureValues,
@@ -1096,7 +1096,7 @@ function resolveWorkspaceDraftSubmissionConfig(input: {
   return {
     cwd: workspaceDirectory,
     provider,
-    modeId: composerState.selectedMode || null,
+    modeId: composerState.effectiveModeId || null,
     model: composerState.effectiveModelId || null,
     thinkingOptionId: composerState.effectiveThinkingOptionId || null,
     featureValues: composerState.featureValues,
@@ -1638,6 +1638,8 @@ export function NewWorkspaceScreen({
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
   const toast = useToast();
+  const composerEditing = useNewWorkspaceComposerEditing();
+  const { leaveFullscreen } = composerEditing;
   const mergeWorkspaces = useCallback(
     (targetServerId: string, workspaces: Iterable<WorkspaceDescriptor>) => {
       getHostRuntimeStore().acceptWorkspaceSnapshots(targetServerId, Array.from(workspaces));
@@ -1725,7 +1727,7 @@ export function NewWorkspaceScreen({
     [terminalComposerValue],
   );
   const terminalTextReplacement = useMemo(
-    () => ({ key: launchFocusKey, text: terminalComposerValue }),
+    () => ({ kind: "replace" as const, key: launchFocusKey, text: terminalComposerValue }),
     [launchFocusKey, terminalComposerValue],
   );
 
@@ -2123,6 +2125,7 @@ export function NewWorkspaceScreen({
                 return;
               }
               outcome = "navigated";
+              leaveFullscreen();
               navigateToWorkspace({ serverId: targetServerId, workspaceId });
             },
           });
@@ -2173,6 +2176,7 @@ export function NewWorkspaceScreen({
       forkDraftSetup,
       isStillOnCreateScreen,
       launchTarget,
+      leaveFullscreen,
       selectedServerId,
       supportsForgeSearch,
       t,
@@ -2229,6 +2233,7 @@ export function NewWorkspaceScreen({
             return;
           }
           outcome = "navigated";
+          leaveFullscreen();
           navigateToWorkspace({ serverId: targetServerId, workspaceId, target });
         },
       });
@@ -2252,6 +2257,7 @@ export function NewWorkspaceScreen({
     t,
     terminalPromptText,
     toast,
+    leaveFullscreen,
     updateFormPreferences,
     withConnectedClient,
   ]);
@@ -2369,13 +2375,14 @@ export function NewWorkspaceScreen({
     },
   });
 
-  const screenHeaderLeft = useMemo(() => <SidebarMenuToggle />, []);
   const importSession = useImportSession({ serverId: selectedServerId });
 
+  const isComposerFullscreen = composerEditing.isFullscreen(isTerminalLaunch);
   const composer = isTerminalLaunch ? (
     <Composer
       key="terminal"
       inputMode="terminal"
+      editingSession={composerEditing.terminal}
       readOnly={!terminalTakesPrompt}
       placeholder={terminalPlaceholder}
       submitLabel={terminalSubmitLabel}
@@ -2402,6 +2409,7 @@ export function NewWorkspaceScreen({
   ) : (
     <Composer
       key="chat"
+      editingSession={composerEditing.chat}
       agentId={draftKey}
       serverId={selectedServerId}
       isPaneFocused={true}
@@ -2436,27 +2444,46 @@ export function NewWorkspaceScreen({
   );
   return (
     <FileDropZone style={styles.container}>
-      <ScreenHeader left={screenHeaderLeft} borderless />
-      <View style={styles.content}>
-        <TitlebarDragRegion />
-        <NewWorkspaceLayout
-          isCompact={isCompact}
-          title={t("newWorkspace.title")}
-          formStack={formStack}
-          onImportSession={importSession.open}
-          multiProjectTaskAction={multiProjectTaskAction}
-        >
-          {composer}
-          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-        </NewWorkspaceLayout>
-      </View>
+      <NewWorkspaceLayout
+        isCompact={isCompact}
+        fullscreen={isComposerFullscreen}
+        title={t("newWorkspace.title")}
+        formStack={formStack}
+        onImportSession={importSession.open}
+        multiProjectTaskAction={multiProjectTaskAction}
+      >
+        {composer}
+        {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+      </NewWorkspaceLayout>
       {importSession.sheet}
     </FileDropZone>
   );
 }
 
+/** Terminal and chat launches edit in separate sessions; the screen follows the mounted one. */
+function useNewWorkspaceComposerEditing() {
+  const terminal = useComposerEditingSession("terminal");
+  const chat = useComposerEditingSession("chat");
+  const isTerminalFullscreen = useComposerFullscreen(terminal);
+  const isChatFullscreen = useComposerFullscreen(chat);
+  // The sessions outlive the screen (its draft keeps them), so a launch that leaves
+  // the screen also leaves fullscreen; the next draft starts inline.
+  const leaveFullscreen = useCallback(() => {
+    terminal.setFullscreen(false);
+    chat.setFullscreen(false);
+  }, [chat, terminal]);
+  return {
+    terminal,
+    chat,
+    leaveFullscreen,
+    isFullscreen: (isTerminalLaunch: boolean) =>
+      isTerminalLaunch ? isTerminalFullscreen : isChatFullscreen,
+  };
+}
+
 function NewWorkspaceLayout({
   isCompact,
+  fullscreen,
   title,
   formStack,
   onImportSession,
@@ -2464,6 +2491,8 @@ function NewWorkspaceLayout({
   children,
 }: {
   isCompact: boolean;
+  /** The composer covers the screen; the header leaves and the dock fills the content. */
+  fullscreen: boolean;
   title: string;
   formStack: ReactNode;
   onImportSession: () => void;
@@ -2487,18 +2516,24 @@ function NewWorkspaceLayout({
     </>
   );
   return (
-    <ComposerDock centered={!isCompact}>
-      {setupFields}
-      <>
-        {children}
-        {isCompact ? null : (
-          <View style={styles.secondaryActions}>
-            {importSessionButton}
-            {multiProjectTaskAction}
-          </View>
-        )}
-      </>
-    </ComposerDock>
+    <>
+      {fullscreen ? null : <MenuHeader borderless />}
+      <View style={styles.content}>
+        <TitlebarDragRegion />
+        <ComposerDock centered={!isCompact} fullscreen={fullscreen}>
+          {setupFields}
+          <>
+            {children}
+            {isCompact || fullscreen ? null : (
+              <View style={styles.secondaryActions}>
+                {importSessionButton}
+                {multiProjectTaskAction}
+              </View>
+            )}
+          </>
+        </ComposerDock>
+      </View>
+    </>
   );
 }
 

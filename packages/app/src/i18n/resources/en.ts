@@ -52,6 +52,7 @@ export const en = {
     back: "Back",
     loading: "Loading...",
     actions: {
+      save: "Save",
       back: "Back",
       cancel: "Cancel",
       close: "Close",
@@ -145,6 +146,8 @@ export const en = {
     input: {
       accessibilityLabel: "Message agent...",
       terminalAccessibilityLabel: "Terminal prompt",
+      fullscreen: "Fullscreen",
+      exitFullscreen: "Exit fullscreen",
       focusHint: "{{shortcut}} to focus",
       addAttachment: "Add attachment",
       interruptAgent: "Interrupt agent",
@@ -633,6 +636,9 @@ export const en = {
       updateHost: "Update the host to use the native terminal renderer.",
       unableToSubscribe: "Unable to subscribe to terminal",
     },
+    sheet: {
+      openAsTab: "Open as tab",
+    },
     tabs: {
       loading: "Loading...",
       modified: "Unsaved changes",
@@ -648,7 +654,7 @@ export const en = {
       },
       switcher: {
         trigger: "Switch tabs ({{count}} open)",
-        title: "Switch tab",
+        title: "Workspace tabs",
         searchPlaceholder: "Search tabs",
       },
       menu: {
@@ -1181,6 +1187,7 @@ export const en = {
       done: "Done",
     },
     display: {
+      showBackground: "Show background",
       trigger: "Display preferences",
       heading: "Display",
       grouping: {
@@ -2055,6 +2062,17 @@ export const en = {
     accessibility: "Context window {{percentage}}% used",
   },
   review: {
+    feedback: {
+      send: "Send feedback ({{count}})",
+      sending: "Sending feedback ({{count}})",
+      chooseAgent: "Choose an agent",
+      sent: "Feedback sent to {{recipient}}",
+      "no-agents": "Open an agent tab in this workspace to send feedback.",
+      disconnected: "Connect to the host to send feedback.",
+      "no-context": "Saved comments no longer match this diff.",
+      failed: "Failed to send feedback. Try again.",
+      prompt: "Please address this code review.",
+    },
     comment: {
       add: "Add review comment",
       edit: "Edit review comment",
