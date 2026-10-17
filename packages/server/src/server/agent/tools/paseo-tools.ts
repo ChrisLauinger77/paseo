@@ -6,7 +6,7 @@ import type { Logger } from "pino";
 
 import type { AgentMode, AgentProvider, AgentSessionConfig } from "../agent-sdk-types.js";
 import type { AgentManager } from "../agent-manager.js";
-import { AgentProfileSchema } from "@getpaseo/protocol/messages";
+import { ActiveTurnBehaviorSchema, AgentProfileSchema } from "@getpaseo/protocol/messages";
 import type { DaemonConfigStore } from "../../daemon-config-store.js";
 import {
   AgentFeatureSchema,
@@ -25,7 +25,7 @@ import {
 import { curateAgentActivity } from "../activity-curator.js";
 import { selectItemsByProjectedLimit } from "../timeline-projection.js";
 import type { AgentStorage } from "../agent-storage.js";
-import { ensureAgentLoaded } from "../agent-loading.js";
+import { AgentNotFoundError, ensureAgentLoaded } from "../agent-loading.js";
 import { isStoredAgentProviderAvailable } from "../../persistence-hooks.js";
 import {
   archiveByScope,
@@ -40,7 +40,12 @@ import { everyMsToFiveFieldCron } from "@getpaseo/protocol/schedule/cadence";
 import { expandUserPath, isSameOrDescendantPath, resolvePathFromBase } from "../../path-utils.js";
 import type { TerminalManager } from "../../../terminal/terminal-manager.js";
 import type { CreatePaseoWorktreeWorkflowFn } from "../../worktree-session.js";
-import type { ScheduleService } from "../../schedule/service.js";
+import { computeNextRunAt, validateScheduleCadence } from "../../schedule/cron.js";
+import {
+  ScheduleNotFoundError,
+  ScheduleStateConflictError,
+  type ScheduleService,
+} from "../../schedule/service.js";
 import {
   ScheduleRunSchema,
   ScheduleSummarySchema,
@@ -93,12 +98,13 @@ import {
 } from "../../worktree/commands.js";
 import { registerBrowserTools } from "../../browser-tools/tools.js";
 import type { BrowserToolsBroker } from "../../browser-tools/broker.js";
-import type {
-  PaseoToolCatalog,
-  PaseoToolConfig,
-  PaseoToolDefinition,
-  PaseoToolExecutionContext,
-  PaseoToolResult,
+import {
+  PaseoToolInputError,
+  type PaseoToolCatalog,
+  type PaseoToolConfig,
+  type PaseoToolDefinition,
+  type PaseoToolExecutionContext,
+  type PaseoToolResult,
 } from "./types.js";
 import type { ProviderPaseoToolsPolicy } from "@getpaseo/protocol/provider-config";
 import { isPaseoToolEnabled } from "../paseo-tool-policy.js";
@@ -247,7 +253,7 @@ function assertOptionsAbsent(
   message: string,
 ): void {
   if (options.some(([, value]) => value !== undefined)) {
-    throw new Error(message);
+    throw new PaseoToolInputError(message);
   }
 }
 
@@ -283,7 +289,7 @@ function resolveWorkspaceWorktreeTarget(input: WorkspaceWorktreeOptions): Worksp
       };
     case "checkout-branch":
       if (!input.branch) {
-        throw new Error("branch is required for checkout-branch mode");
+        throw new PaseoToolInputError("branch is required for checkout-branch mode");
       }
       assertOptionsAbsent(
         [
@@ -297,7 +303,7 @@ function resolveWorkspaceWorktreeTarget(input: WorkspaceWorktreeOptions): Worksp
       return { action: "checkout", refName: input.branch };
     case "checkout-pr":
       if (input.prNumber === undefined) {
-        throw new Error("prNumber is required for checkout-pr mode");
+        throw new PaseoToolInputError("prNumber is required for checkout-pr mode");
       }
       assertOptionsAbsent(
         [
@@ -373,7 +379,7 @@ function resolveScheduleProviderAndModel(params: {
   const provider = providerInput.slice(0, slashIndex).trim();
   const model = providerInput.slice(slashIndex + 1).trim();
   if (!provider || !model) {
-    throw new Error("provider must be <provider> or <provider>/<model>");
+    throw new PaseoToolInputError("provider must be <provider> or <provider>/<model>");
   }
 
   return {
@@ -390,7 +396,7 @@ function resolveScheduleUpdateProviderAndModel(params: {
   const modelInput = typeof params.model === "string" ? params.model.trim() : params.model;
 
   if (params.model !== undefined && modelInput === "") {
-    throw new Error("model cannot be empty");
+    throw new PaseoToolInputError("model cannot be empty");
   }
 
   if (!providerInput) {
@@ -408,13 +414,13 @@ function resolveScheduleUpdateProviderAndModel(params: {
   const provider = providerInput.slice(0, slashIndex).trim();
   const modelFromProvider = providerInput.slice(slashIndex + 1).trim();
   if (!provider || !modelFromProvider) {
-    throw new Error("provider must be <provider> or <provider>/<model>");
+    throw new PaseoToolInputError("provider must be <provider> or <provider>/<model>");
   }
   if (params.model === null) {
-    throw new Error("provider specifies a model but model is null");
+    throw new PaseoToolInputError("provider specifies a model but model is null");
   }
   if (typeof modelInput === "string" && modelInput !== modelFromProvider) {
-    throw new Error("Conflicting model values provided");
+    throw new PaseoToolInputError("Conflicting model values provided");
   }
 
   return {
@@ -456,26 +462,82 @@ function normalizeScheduleTimeZoneArg(value: string | undefined): string | undef
   return normalizeScheduleCadenceArg(value);
 }
 
+function addScheduleCadenceIssue(
+  input: { cron?: string; timezone?: string },
+  context: z.RefinementCtx,
+): void {
+  const expression = input.cron?.trim();
+  if (!expression) {
+    return;
+  }
+  const cadence: ScheduleCadence = {
+    type: "cron",
+    expression,
+    ...(input.timezone !== undefined ? { timezone: input.timezone.trim() } : {}),
+  };
+  try {
+    validateScheduleCadence(cadence);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    context.addIssue({
+      code: "custom",
+      path: [message.startsWith("Invalid cron time zone:") ? "timezone" : "cron"],
+      message,
+    });
+    return;
+  }
+  try {
+    computeNextRunAt(cadence, new Date());
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      path: ["cron"],
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function parseToolArguments<T>(schema: z.ZodType<T>, input: unknown): T {
+  const result = schema.safeParse(input);
+  if (!result.success) {
+    throw new PaseoToolInputError(result.error.message, result.error.issues);
+  }
+  return result.data;
+}
+
+function addScheduleDurationIssue(value: string, context: z.RefinementCtx): void {
+  try {
+    parseDurationString(value);
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+const scheduleDurationInputSchema = z.string().superRefine(addScheduleDurationIssue);
+
 function resolveScheduleUpdateCadence(input: ScheduleUpdateToolInput): ScheduleCadence | undefined {
   const every = normalizeScheduleCadenceArg(input.every);
   const cron = normalizeScheduleCadenceArg(input.cron);
   const timeZone = normalizeScheduleTimeZoneArg(input.timezone);
 
   if (every !== undefined && cron !== undefined) {
-    throw new Error("Specify at most one of every or cron");
+    throw new PaseoToolInputError("Specify at most one of every or cron");
   }
   if (timeZone !== undefined && cron === undefined) {
-    throw new Error("timezone can only be used with cron");
+    throw new PaseoToolInputError("timezone can only be used with cron");
   }
   if (every !== undefined) {
     // COMPAT(scheduleEveryInput): accept the old hidden field and canonicalize it before write.
     // Added in v0.2.0; remove after 2027-01-17.
-    const everyMs = parseDurationString(every);
+    const everyMs = parseDurationString(parseToolArguments(scheduleDurationInputSchema, every));
     const expression = everyMsToFiveFieldCron(everyMs);
     if (expression) {
       return { type: "cron", expression };
     }
-    throw new Error(`${every} cannot be represented faithfully by five-field cron`);
+    throw new PaseoToolInputError(`${every} cannot be represented faithfully by five-field cron`);
   }
   if (cron !== undefined) {
     return {
@@ -489,7 +551,7 @@ function resolveScheduleUpdateCadence(input: ScheduleUpdateToolInput): ScheduleC
 
 function resolveScheduleUpdateExpiresAt(input: ScheduleUpdateToolInput): string | null | undefined {
   if (input.expiresIn !== undefined && input.clearExpires) {
-    throw new Error("Specify at most one of expiresIn or clearExpires");
+    throw new PaseoToolInputError("Specify at most one of expiresIn or clearExpires");
   }
   if (input.expiresIn !== undefined) {
     return new Date(Date.now() + parseDurationString(input.expiresIn)).toISOString();
@@ -611,7 +673,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       typeof (inputSchema as { safeParseAsync?: unknown }).safeParseAsync === "function"
         ? (inputSchema as z.ZodType)
         : z.object(inputSchema as z.ZodRawShape).passthrough();
-    return schema.parseAsync(input);
+    const result = await schema.safeParseAsync(input);
+    if (!result.success) {
+      throw new PaseoToolInputError(result.error.message, result.error.issues);
+    }
+    return result.data;
   };
 
   const tools = new Map<string, PaseoToolDefinition>();
@@ -645,7 +711,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     ): Promise<PaseoToolResult> {
       const tool = tools.get(name);
       if (!tool) {
-        throw new Error(`Paseo tool not found: ${name}`);
+        throw new PaseoToolInputError(`Paseo tool not found: ${name}`);
       }
       return tool.handler(await parseToolInput(tool, input), context);
     },
@@ -657,7 +723,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   }): ScheduleCadence => {
     const expression = input.cron?.trim() ?? "";
     if (!expression) {
-      throw new Error("cron is required");
+      throw new PaseoToolInputError("cron is required");
     }
     const timezone = normalizeScheduleTimeZoneArg(input.timezone);
     return {
@@ -679,7 +745,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     }
     const parentAgent = agentManager.getAgent(callerAgentId);
     if (!parentAgent) {
-      throw new Error(`Parent agent ${callerAgentId} not found`);
+      throw new PaseoToolInputError(`Parent agent ${callerAgentId} not found`);
     }
     return parentAgent;
   };
@@ -708,9 +774,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     const trimmedCwd = requestedCwd?.trim();
     if (!trimmedCwd) {
       if (opts?.required) {
-        throw new Error("cwd is required");
+        throw new PaseoToolInputError("cwd is required");
       }
-      throw new Error("cwd is required outside an agent-scoped session");
+      throw new PaseoToolInputError("cwd is required outside an agent-scoped session");
     }
 
     return expandUserPath(trimmedCwd);
@@ -725,11 +791,12 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     }
 
     if (!options.ensureWorkspaceForCreate) {
-      throw new Error(
-        callerAgentId
-          ? `Caller agent ${callerAgentId} has no workspace and workspace minting is not configured`
-          : "workspaceId is required outside an agent-scoped session",
-      );
+      if (callerAgentId) {
+        throw new Error(
+          `Caller agent ${callerAgentId} has no workspace and workspace minting is not configured`,
+        );
+      }
+      throw new PaseoToolInputError("workspaceId is required outside an agent-scoped session");
     }
 
     return options.ensureWorkspaceForCreate(resolvedCwd);
@@ -744,11 +811,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     if (callerAgentId) {
       const callerAgent = resolveCallerAgent();
       if (!callerAgent?.workspaceId) {
-        throw new Error(`Caller agent ${callerAgentId} has no current workspace`);
+        throw new PaseoToolInputError(`Caller agent ${callerAgentId} has no current workspace`);
       }
       return callerAgent.workspaceId;
     }
-    throw new Error("workspaceId is required outside an agent-scoped session");
+    throw new PaseoToolInputError("workspaceId is required outside an agent-scoped session");
   }
 
   const buildCallerAgentScheduleConfigExtras = (
@@ -818,7 +885,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     }
 
     if (!params?.provider?.trim()) {
-      throw new Error("provider is required when target is new-agent");
+      throw new PaseoToolInputError("provider is required when target is new-agent");
     }
 
     const resolvedProviderModel = resolveScheduleProviderAndModel({
@@ -840,22 +907,41 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     if (!scheduleService) {
       throw new Error("Schedule service is not configured");
     }
-    const schedule = await scheduleService.inspect(id);
+    let schedule: Awaited<ReturnType<ScheduleService["inspect"]>>;
+    try {
+      schedule = await scheduleService.inspect(id);
+    } catch (error) {
+      if (error instanceof ScheduleNotFoundError) {
+        throw new PaseoToolInputError(error.message);
+      }
+      throw error;
+    }
     if (schedule.target.type !== type) {
-      throw new Error(
+      throw new PaseoToolInputError(
         type === "agent" ? `Heartbeat not found: ${id}` : `Schedule not found: ${id}`,
       );
     }
     return schedule;
   }
 
+  async function runScheduleAction<T>(action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (error instanceof ScheduleStateConflictError) {
+        throw new PaseoToolInputError(error.message);
+      }
+      throw error;
+    }
+  }
+
   async function requireCallerHeartbeat(id: string) {
     if (!callerAgentId) {
-      throw new Error("Heartbeat operations require an agent-scoped session");
+      throw new PaseoToolInputError("Heartbeat operations require an agent-scoped session");
     }
     const schedule = await requireScheduleTarget(id, "agent");
     if (schedule.target.type !== "agent" || schedule.target.agentId !== callerAgentId) {
-      throw new Error(`Heartbeat ${id} does not belong to caller ${callerAgentId}`);
+      throw new PaseoToolInputError(`Heartbeat ${id} does not belong to caller ${callerAgentId}`);
     }
     return schedule;
   }
@@ -865,6 +951,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     })
     .refine(
       (value) => {
+        if (!value.includes("/")) {
+          return true;
+        }
         try {
           resolveRequiredProviderModel(value);
           return true;
@@ -1138,6 +1227,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     .object(legacyTopLevelCreateAgentInputSchema)
     .strict();
   const commonSendAgentPromptInputSchema = {
+    activeTurnBehavior: ActiveTurnBehaviorSchema.optional().describe(
+      'How to send into a running turn: "steer" joins it, falling back to interrupt when unavailable; "interrupt" replaces it. Defaults to steer for agent callers and interrupt otherwise.',
+    ),
     agentId: z.string(),
     prompt: z.string(),
     sessionMode: z.string().optional().describe("Optional mode to set before running the prompt."),
@@ -1202,11 +1294,13 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       },
       async (args, context) => {
         if (!callerAgentId) {
-          throw new Error("speak is only available to agent-scoped tool sessions");
+          throw new PaseoToolInputError("speak is only available to agent-scoped tool sessions");
         }
         const handler = resolveSpeakHandler?.(callerAgentId) ?? null;
         if (!handler) {
-          throw new Error(`No speak handler registered for your session '${callerAgentId}'`);
+          throw new PaseoToolInputError(
+            `No speak handler registered for your session '${callerAgentId}'`,
+          );
         }
         await handler({
           text: args.text,
@@ -1307,7 +1401,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       if (isolation === "local") {
         const cwd = resolveScopedCwd(path, { required: true });
         if (!(await isExistingDirectory(cwd))) {
-          throw new Error(`Directory not found: ${cwd}`);
+          throw new PaseoToolInputError(`Directory not found: ${cwd}`);
         }
         assertOptionsAbsent(
           [
@@ -1575,7 +1669,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       if (hasLegacyCreateAgentPlacement(args)) {
         // COMPAT(nestedCreateAgentPlacement): accept the old relationship/workspace shape without
         // advertising it to models. Added in v0.2.0; remove after 2027-01-17.
-        const parsed = legacyAgentToAgentCreateAgentArgsSchema.parse(args);
+        const parsed = parseToolArguments(legacyAgentToAgentCreateAgentArgsSchema, args);
         const { cwd, workspaceId, worktree } = await resolveCreateAgentWorkspace(parsed.workspace, {
           prompt: parsed.initialPrompt,
         });
@@ -1588,7 +1682,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           worktree,
         };
       }
-      const parsed = agentToAgentCreateAgentArgsSchema.parse(args);
+      const parsed = parseToolArguments(agentToAgentCreateAgentArgsSchema, args);
       const { cwd, workspaceId } = await resolveCanonicalCreateAgentWorkspace(parsed.workspaceId, {
         prompt: parsed.initialPrompt,
       });
@@ -1604,13 +1698,15 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     if (hasLegacyCreateAgentPlacement(args)) {
       // COMPAT(nestedCreateAgentPlacement): see the agent-scoped branch above.
       const parsedArgs = normalizeTopLevelCreateAgentArgs(
-        legacyTopLevelCreateAgentArgsSchema.parse(args),
+        parseToolArguments(legacyTopLevelCreateAgentArgsSchema, args),
       );
       if (parsedArgs.relationship?.kind === "subagent") {
-        throw new Error("relationship subagent requires an agent-scoped tool session");
+        throw new PaseoToolInputError(
+          "relationship subagent requires an agent-scoped tool session",
+        );
       }
       if (!parsedArgs.workspace) {
-        throw new Error("Legacy create_agent placement could not be resolved");
+        throw new PaseoToolInputError("Legacy create_agent placement could not be resolved");
       }
       const { cwd, workspaceId, worktree } = await resolveCreateAgentWorkspace(
         parsedArgs.workspace,
@@ -1625,7 +1721,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         worktree,
       };
     }
-    const parsedArgs = canonicalTopLevelCreateAgentArgsSchema.parse(args);
+    const parsedArgs = parseToolArguments(canonicalTopLevelCreateAgentArgsSchema, args);
     const { cwd, workspaceId } = await resolveCanonicalCreateAgentWorkspace(
       parsedArgs.workspaceId,
       { prompt: parsedArgs.initialPrompt },
@@ -1685,7 +1781,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     }
     const caller = resolveCallerAgent();
     if (!caller?.workspaceId) {
-      throw new Error(`Caller agent ${callerAgentId} has no current workspace`);
+      throw new PaseoToolInputError(`Caller agent ${callerAgentId} has no current workspace`);
     }
     return { cwd: undefined, workspaceId: caller.workspaceId };
   }
@@ -1713,18 +1809,18 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     };
 
     if (canonicalCandidate.relationship && canonicalCandidate.workspace) {
-      return legacyTopLevelCreateAgentArgsSchema.parse({
+      return parseToolArguments(legacyTopLevelCreateAgentArgsSchema, {
         ...canonicalCandidate,
         ...(Object.keys(settings).length > 0 ? { settings } : {}),
       });
     }
 
     if (canonicalCandidate.relationship || canonicalCandidate.workspace) {
-      throw new Error("relationship and workspace must be provided together");
+      throw new PaseoToolInputError("relationship and workspace must be provided together");
     }
 
     if (!cwd?.trim()) {
-      throw new Error("cwd is required for legacy top-level create_agent calls");
+      throw new PaseoToolInputError("cwd is required for legacy top-level create_agent calls");
     }
 
     const legacyWorktreeTarget = resolveLegacyCreateAgentWorktreeTarget({
@@ -1751,7 +1847,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           },
         };
 
-    return legacyTopLevelCreateAgentArgsSchema.parse({
+    return parseToolArguments(legacyTopLevelCreateAgentArgsSchema, {
       ...canonicalCandidate,
       relationship: { kind: "detached" },
       workspace,
@@ -1804,11 +1900,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   }> {
     if (workspace.kind === "current") {
       if (!callerAgentId) {
-        throw new Error("workspace current requires an agent-scoped tool session");
+        throw new PaseoToolInputError("workspace current requires an agent-scoped tool session");
       }
       const callerAgent = resolveCallerAgent();
       if (!callerAgent?.workspaceId) {
-        throw new Error(`Caller agent ${callerAgentId} has no current workspace`);
+        throw new PaseoToolInputError(`Caller agent ${callerAgentId} has no current workspace`);
       }
       return {
         cwd: workspace.cwd,
@@ -1825,14 +1921,16 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         (candidate) => candidate.workspaceId === workspace.workspaceId,
       );
       if (!existingWorkspace) {
-        throw new Error(`Workspace ${workspace.workspaceId} not found`);
+        throw new PaseoToolInputError(`Workspace ${workspace.workspaceId} not found`);
       }
       const cwd = workspace.cwd
         ? resolveScopedCwd(workspace.cwd, { required: true })
         : existingWorkspace.cwd;
       const lockedCwd = callerContext?.lockedCwd?.trim();
       if (lockedCwd && !isSameOrDescendantPath(expandUserPath(lockedCwd), cwd)) {
-        throw new Error(`Workspace ${workspace.workspaceId} is outside the allowed cwd`);
+        throw new PaseoToolInputError(
+          `Workspace ${workspace.workspaceId} is outside the allowed cwd`,
+        );
       }
       return {
         cwd,
@@ -1901,28 +1999,55 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       inputSchema: sendAgentPromptInputSchema,
       outputSchema: {
         success: z.boolean(),
-        disposition: z.enum(["turn_started", "out_of_band"]).optional(),
+        disposition: z.enum(["turn_started", "out_of_band", "steered"]).optional(),
         status: AgentStatusEnum,
         guidance: z.string().optional(),
       },
     },
-    async ({ agentId, prompt, sessionMode, notifyOnFinish = Boolean(callerAgentId) }) => {
+    async ({
+      agentId,
+      prompt,
+      sessionMode,
+      notifyOnFinish = Boolean(callerAgentId),
+      activeTurnBehavior = callerAgentId ? "steer" : "interrupt",
+    }) => {
       let stopNotification: (() => void) | undefined;
-      function armFinishNotification(disposition: PromptDispatchDisposition): void {
-        if (!callerAgentId || !notifyOnFinish) {
-          return;
-        }
+      let acceptDispatch!: (result: PromptDispatchDisposition | false) => void;
+      const dispatchResult = new Promise<PromptDispatchDisposition | false>((resolve) => {
+        acceptDispatch = resolve;
+      });
+      const notifying = Boolean(callerAgentId && notifyOnFinish);
+      if (callerAgentId && notifyOnFinish) {
         stopNotification = setupFinishNotification({
           agentManager,
           agentStorage,
           childAgentId: agentId,
           callerAgentId,
-          waitForTurnStart: disposition === "turn_started",
+          waitForTurnStart: false,
+          dispatchResult,
+          logger: childLogger,
+        });
+      }
+      function confirmDispatch(disposition: PromptDispatchDisposition): void {
+        // A new turn must ignore outcomes from the displaced turn. Its iterator
+        // has not started yet, so rearm here; steering keeps the early observer.
+        if (disposition !== "turn_started") {
+          acceptDispatch(disposition);
+          return;
+        }
+        acceptDispatch(disposition);
+        if (!callerAgentId || !notifyOnFinish) return;
+        stopNotification?.();
+        stopNotification = setupFinishNotification({
+          agentManager,
+          agentStorage,
+          childAgentId: agentId,
+          callerAgentId,
+          waitForTurnStart: true,
           logger: childLogger,
         });
       }
 
-      const notifying = Boolean(callerAgentId && notifyOnFinish);
       const { disposition } = await sendPromptToAgent({
         agentManager,
         agentStorage,
@@ -1930,10 +2055,15 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         prompt,
         source: callerAgentId ? { kind: "agent-message", agentId: callerAgentId } : undefined,
         sessionMode,
-        onDispatch: armFinishNotification,
+        activeTurnBehavior,
+        onDispatch: confirmDispatch,
         logger: childLogger,
       }).catch((error) => {
+        acceptDispatch(false);
         stopNotification?.();
+        if (error instanceof AgentNotFoundError) {
+          throw new PaseoToolInputError(error.message);
+        }
         throw error;
       });
 
@@ -1997,7 +2127,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
 
       const record = await agentStorage.get(agentId);
       if (!record || record.internal) {
-        throw new Error(`Agent ${agentId} not found`);
+        throw new PaseoToolInputError(`Agent ${agentId} not found`);
       }
 
       const structuredSnapshot = buildStoredAgentPayload(
@@ -2235,10 +2365,10 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       const workspaceId = resolveWorkspaceIdForRename(requestedWorkspaceId);
       const existing = await options.workspaceRegistry.get(workspaceId);
       if (!existing) {
-        throw new Error(`Workspace ${workspaceId} not found`);
+        throw new PaseoToolInputError(`Workspace ${workspaceId} not found`);
       }
       if (existing.archivedAt) {
-        throw new Error(`Workspace ${workspaceId} is archived`);
+        throw new PaseoToolInputError(`Workspace ${workspaceId} is archived`);
       }
 
       await options.workspaceRegistry.upsert({
@@ -2442,7 +2572,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
 
       const terminal = terminalManager.getTerminal(terminalId);
       if (!terminal) {
-        throw new Error(`Terminal ${terminalId} not found`);
+        throw new PaseoToolInputError(`Terminal ${terminalId} not found`);
       }
 
       terminal.kill();
@@ -2478,7 +2608,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
 
       if (!terminalManager.getTerminal(terminalId)) {
-        throw new Error(`Terminal ${terminalId} not found`);
+        throw new PaseoToolInputError(`Terminal ${terminalId} not found`);
       }
 
       const capture = await terminalManager.captureTerminal(terminalId, {
@@ -2519,7 +2649,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
 
       const terminal = terminalManager.getTerminal(terminalId);
       if (!terminal) {
-        throw new Error(`Terminal ${terminalId} not found`);
+        throw new PaseoToolInputError(`Terminal ${terminalId} not found`);
       }
 
       terminal.send({
@@ -2539,24 +2669,26 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     {
       title: "Create schedule",
       description: "Create a recurring schedule that starts a new agent on a cron cadence.",
-      inputSchema: {
-        prompt: z.string().trim().min(1, "prompt is required"),
-        cron: z.string().trim().min(1, "cron is required"),
-        timezone: z
-          .string()
-          .trim()
-          .min(1)
-          .optional()
-          .describe("IANA time zone for the cron cadence. For example: America/New_York."),
-        name: z.string().optional(),
-        provider: (callerAgentId ? AgentProviderEnum.optional() : AgentProviderEnum).describe(
-          "Provider, or provider/model (for example: codex or codex/gpt-5.4). Defaults to the caller's provider in an agent-scoped session.",
-        ),
-        cwd: z.string().optional(),
-        isolation: z.enum(["local", "worktree"]).optional(),
-        maxRuns: z.number().int().positive().optional(),
-        expiresIn: z.string().optional(),
-      },
+      inputSchema: z
+        .object({
+          prompt: z.string().trim().min(1, "prompt is required"),
+          cron: z.string().trim().min(1, "cron is required"),
+          timezone: z
+            .string()
+            .trim()
+            .min(1)
+            .optional()
+            .describe("IANA time zone for the cron cadence. For example: America/New_York."),
+          name: z.string().optional(),
+          provider: (callerAgentId ? AgentProviderEnum.optional() : AgentProviderEnum).describe(
+            "Provider, or provider/model (for example: codex or codex/gpt-5.4). Defaults to the caller's provider in an agent-scoped session.",
+          ),
+          cwd: z.string().optional(),
+          isolation: z.enum(["local", "worktree"]).optional(),
+          maxRuns: z.number().int().positive().optional(),
+          expiresIn: scheduleDurationInputSchema.optional(),
+        })
+        .superRefine(addScheduleCadenceIssue),
       outputSchema: ScheduleSummarySchema.shape,
     },
     async ({ prompt, cron, timezone, name, provider, cwd, isolation, maxRuns, expiresIn }) => {
@@ -2589,19 +2721,21 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     {
       title: "Create heartbeat",
       description: "Create a recurring heartbeat that sends you a prompt on a cron cadence.",
-      inputSchema: {
-        prompt: z.string().trim().min(1, "prompt is required"),
-        cron: z.string().trim().min(1, "cron is required"),
-        timezone: z
-          .string()
-          .trim()
-          .min(1)
-          .optional()
-          .describe("IANA time zone for the cron cadence. For example: America/New_York."),
-        name: z.string().optional(),
-        maxRuns: z.number().int().positive().optional(),
-        expiresIn: z.string().optional(),
-      },
+      inputSchema: z
+        .object({
+          prompt: z.string().trim().min(1, "prompt is required"),
+          cron: z.string().trim().min(1, "cron is required"),
+          timezone: z
+            .string()
+            .trim()
+            .min(1)
+            .optional()
+            .describe("IANA time zone for the cron cadence. For example: America/New_York."),
+          name: z.string().optional(),
+          maxRuns: z.number().int().positive().optional(),
+          expiresIn: scheduleDurationInputSchema.optional(),
+        })
+        .superRefine(addScheduleCadenceIssue),
       outputSchema: ScheduleSummarySchema.shape,
     },
     async ({ prompt, cron, timezone, name, maxRuns, expiresIn }) => {
@@ -2609,7 +2743,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         throw new Error("Schedule service is not configured");
       }
       if (!callerAgentId) {
-        throw new Error("create_heartbeat requires an agent-scoped session");
+        throw new PaseoToolInputError("create_heartbeat requires an agent-scoped session");
       }
       resolveCallerAgent();
 
@@ -2720,7 +2854,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
 
       await requireScheduleTarget(id, "new-agent");
-      await scheduleService.pause(id);
+      await runScheduleAction(() => scheduleService.pause(id));
       return {
         content: [],
         structuredContent: ensureValidJson({ success: true }),
@@ -2746,7 +2880,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
 
       await requireScheduleTarget(id, "new-agent");
-      await scheduleService.resume(id);
+      await runScheduleAction(() => scheduleService.resume(id));
       return {
         content: [],
         structuredContent: ensureValidJson({ success: true }),
@@ -2828,13 +2962,13 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
             .optional()
             .describe("New mode for new-agent target (null to clear)."),
           cwd: z.string().trim().min(1).optional().describe("New cwd for new-agent target."),
-          expiresIn: z
-            .string()
+          expiresIn: scheduleDurationInputSchema
             .optional()
             .describe("New relative expiry duration (for example: 1h, 2d)."),
           clearExpires: z.boolean().optional().describe("Clear any schedule expiry."),
         })
-        .passthrough(),
+        .passthrough()
+        .superRefine(addScheduleCadenceIssue),
       outputSchema: StoredScheduleSchema.shape,
     },
     async (input) => {
@@ -2891,7 +3025,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         throw new Error("Schedule service is not configured");
       }
       await requireScheduleTarget(id, "new-agent");
-      const schedule = await scheduleService.runOnce(id);
+      const schedule = await runScheduleAction(() => scheduleService.runOnce(id));
       return {
         content: [],
         structuredContent: ensureValidJson(schedule),
@@ -3004,10 +3138,10 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       });
       const summary = toProviderSummary(entry);
       if (!entry.enabled) {
-        throw new Error(`Provider '${providerId}' is disabled`);
+        throw new PaseoToolInputError(`Provider '${providerId}' is disabled`);
       }
       if (entry.status !== "ready") {
-        throw new Error(entry.error ?? `Provider '${providerId}' is unavailable`);
+        throw new PaseoToolInputError(entry.error ?? `Provider '${providerId}' is unavailable`);
       }
       const selectedModel = settings?.model ?? resolvedProviderModel.model;
       const features = await agentManager.listDraftFeatures({
